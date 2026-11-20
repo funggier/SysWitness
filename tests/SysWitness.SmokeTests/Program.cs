@@ -160,7 +160,100 @@ try
     catch (ArgumentOutOfRangeException) { invalidLimit = true; }
     Require(invalidLimit, "Excessive limit rejected");
 
-    Console.WriteLine("PASS: durable checkpoint/restart, rollback, durable gaps, cursor pages, auth-independent data filters");
+    // Default policy MUST retain existing evidence, even when the records are old.
+    Require(store.Policy.RetentionDays is null, "Retention disabled by default");
+    Require(await restoredStore.PruneExpiredAsync(timestamp.AddYears(5)) == 0,
+        "Default storage policy never deletes user evidence");
+    Require((await restoredStore.GetPageAsync(new EventQuery(Limit: 100))).Returned == 14,
+        "Default policy preserved all evidence");
+
+    var retentionPath = Path.Combine(temp, "retention.sqlite");
+    var retentionStore = new SqliteEventStore(retentionPath,
+        new StoragePolicy(16 * 1024 * 1024, RetentionDays: 7));
+    await retentionStore.InitializeAsync();
+
+    // Same observation timestamps can span multiple channels: deletion ledger is per channel.
+    var oldObserved = DateTimeOffset.Parse("2026-12-01T10:00:00Z");
+    var now = DateTimeOffset.Parse("2026-12-20T10:00:00Z");
+    var recentObserved = now.AddHours(-1);
+    ObservedEvent AgeEvent(int id, string channel, DateTimeOffset observed) =>
+        new(EventIdentity.FromXml(channel, "<Event>age-" + id + "</Event>"),
+            observed, observed, "windows.event", channel, "test", id, id, null,
+            "<Event>age-" + id + "</Event>");
+    var oldSystem = AgeEvent(301, "System", oldObserved);
+    var oldApplication = AgeEvent(302, "Application", oldObserved.AddDays(1));
+    var recentSystem = AgeEvent(303, "System", recentObserved);
+
+    await retentionStore.CommitBatchAsync("System", [oldSystem, recentSystem],
+        "<BookmarkList><Bookmark RecordId='303'/></BookmarkList>", 303);
+    await retentionStore.CommitBatchAsync("Application", [oldApplication],
+        "<BookmarkList><Bookmark RecordId='302'/></BookmarkList>", 302);
+
+    Require(await retentionStore.PruneExpiredAsync(now, 1) == 1,
+        "Retention must delete in bounded batches");
+    Require(await retentionStore.PruneExpiredAsync(now, 10) == 1,
+        "Second bounded retention batch deletes remaining expired source");
+    Require(await retentionStore.PruneExpiredAsync(now, 10) == 0,
+        "A fresh record must not be deleted");
+    Require((await retentionStore.GetByIdAsync(recentSystem.EventId)) is not null,
+        "Fresh evidence remains available");
+    Require(await retentionStore.GetByIdAsync(oldSystem.EventId) is null &&
+        await retentionStore.GetByIdAsync(oldApplication.EventId) is null,
+        "Opt-in expired evidence is removed");
+    Require((await retentionStore.GetCheckpointAsync("System"))?.RecordId == 303 &&
+        (await retentionStore.GetCheckpointAsync("Application"))?.RecordId == 302,
+        "Retention MUST NOT mutate native collector bookmarks");
+    var audit = await retentionStore.GetRetentionHistoryAsync();
+    Require(audit.Count == 2 && audit.Sum(x => x.EventCount) == 2 &&
+        audit.Select(x => x.Channel).ToHashSet().SetEquals(["System", "Application"]),
+        "Per-channel retention deletion summaries are durable");
+    var retentionStatus = await retentionStore.GetStorageStatusAsync();
+    Require(retentionStatus.StoredEventCount == 1 &&
+        retentionStatus.RecordedRetentionDeletedEvents == 2 &&
+        retentionStatus.RetentionDays == 7,
+        "Read-only storage status reports retained and deleted counts");
+
+    var reopenedRetentionStore = new SqliteEventStore(retentionPath,
+        new StoragePolicy(16 * 1024 * 1024, 7));
+    await reopenedRetentionStore.InitializeAsync();
+    Require((await reopenedRetentionStore.GetRetentionHistoryAsync()).Sum(x => x.EventCount) == 2,
+        "Retention deletion history persists across a new storage instance");
+    Require((await reopenedRetentionStore.GetCheckpointAsync("System"))?.RecordId == 303,
+        "Retention changes do not invalidate restart checkpoints");
+
+    var pressurePath = Path.Combine(temp, "pressure.sqlite");
+    var pressureStore = new SqliteEventStore(pressurePath, new StoragePolicy(1024 * 1024, null));
+    await pressureStore.InitializeAsync();
+    var large = AgeEvent(400, "System", now) with { RawXml = new string('x', 2_000_000) };
+    bool paused = false;
+    try
+    {
+        await pressureStore.CommitBatchAsync("System", [large],
+            "<BookmarkList><Bookmark RecordId='400'/></BookmarkList>", 400);
+    }
+    catch (StoragePressureException) { paused = true; }
+    Require(paused, "Oversized event batch must be stopped rather than silently dropped");
+    Require(await pressureStore.GetCheckpointAsync("System") is null &&
+        await pressureStore.GetByIdAsync(large.EventId) is null,
+        "Soft budget rejection must leave both checkpoint and evidence unchanged");
+
+    // Invalid local settings must fail closed; never silently accept a destructive policy.
+    var previousDays = Environment.GetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS");
+    try
+    {
+        Environment.SetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS", "-1");
+        var rejectedRetention = false;
+        try { StoragePolicy.FromEnvironment(); }
+        catch (ArgumentException) { rejectedRetention = true; }
+        Require(rejectedRetention, "Invalid local retention setting rejected");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS", previousDays);
+    }
+
+    Console.WriteLine("PASS: durable bookmarks, independent sources, cursor search, " +
+        "opt-in retention audit/restart, unchanged checkpoints and storage pressure pause");
 }
 finally
 {

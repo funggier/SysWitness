@@ -9,6 +9,8 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /system/summary | Approved machine overview | system.read |
 | GET | /monitoring/coverage | Aggregate and per-channel source health; optional `?channel=Application` | coverage.read |
 | GET | /monitoring/gaps | Source-specific gap history, `?channel=System&limit=50` | coverage.read |
+| GET | /storage/status | SQLite size, soft limit, event count, retention policy and counts | storage.read |
+| GET | /storage/retention | Per-channel deletion summaries, optional `?limit=50` | storage.read |
 | GET | /events | Filtered and paginated events | events.read |
 | GET | /events/{id} | One normalized event | events.read |
 | POST | /events/query | Complex *read-only* filter, not arbitrary SQL | events.read |
@@ -18,7 +20,13 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /events/stream | Authenticated SSE with cursor and replay | events.stream |
 | GET | /schemas/events | Supported event schemas and field coverage | schema.read |
 
-**Implemented in M1/M2 prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc) and GET /events/{id}. All other endpoints are **planned**, not implemented. M1 uses a single shared 32+-character API token (X-SysWitness-Token), not yet per-client scoped tokens. Raw event XML remains in local SQLite and is not exposed by the initial API.
+**Implemented in M1/M2 prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc) and GET /events/{id}. All other endpoints are **planned**, not implemented. M1 uses a single shared 32+-character API token (X-SysWitness-Token), not yet per-client scoped tokens. Raw event XML remains in local SQLite and is not exposed by the initial API.
+
+## Local storage policy (no remote configuration)
+- Retention is disabled by default. A *local* environment variable `SYSWITNESS_RETENTION_DAYS` may enable opt-in deletion of aged local event copies with durable summary records. `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` defaults to 4096 MiB and conservatively pauses ingestion on projected storage pressure without advancing bookmarks.
+- `GET /storage/status` exposes approximate physical SQLite/WAL/SHM bytes, configured soft limit, current evidence count, and total deleted by local retention.
+- `GET /storage/retention` returns only durable deletion summary records. There is no POST to prune, change retention, or touch Windows Event Logs.
+- The soft limit is **not** a hard disk quota; SQLite file/WAL overhead can exceed the estimate. See [Storage policy](STORAGE_POLICY_TH.md).
 
 ## Monitoring coverage rules
 - `GET /monitoring/coverage` reports an aggregate status, `configuredCollectors[]` (all locally selected sources), `enabledCollectors[]` (currently collecting sources), `degradedCollectors[]`, and a `channels[]` array. The existing top-level `channel`, `lastRecordId`, `recordedGaps` fields refer to System (or the first configured channel if System is disabled) for backward compatibility.

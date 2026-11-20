@@ -35,5 +35,9 @@ Initial MVP hosts independently configured System/Application Event Log collecto
 - A degraded optional source does not make successful collection from System/Application invalid, but the aggregate health response correctly reports `degraded`.
 - The API has no channel-enabling or OS audit setup endpoints.
 
+## Local storage maintenance boundary
+
+The optional `StorageMaintenanceService` runs only when `SYSWITNESS_RETENTION_DAYS` is configured locally. It deletes old normalized/raw evidence copies in bounded SQLite batches and records aggregate deletion history in the same transaction. The default is no automatic deletion. Storage is governed by a conservative approximate soft limit; when projected batch growth would exceed it, collectors pause and **do not** advance native bookmarks. An HTTP client, MCP or AI cannot change these rules or invoke deletion. The API offers only read-only `/storage/status` and `/storage/retention` endpoints. Full disk-quota enforcement and compaction remain out of scope for this step.
+
 ## Configuration boundary
 Only a local, separately authorized setup/admin interface may install providers, configure Windows audits, or modify the collector. No such actions exist in public data API, MCP toolset, or AI interface.

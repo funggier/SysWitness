@@ -48,6 +48,8 @@ Source -> Collector -> Normalize -> Append-only raw evidence
 เก็บ timestamp ต้นทาง + เวลาที่รับข้อมูล, source identifier, stable event id, provider-native record identifier และ raw payload (โดยจำกัดข้อมูลอ่อนไหว) ให้เชื่อมกลับหลักฐานได้ ถ้าข้อมูลไม่ครบ ห้ามเติมด้วยการเดา
 
 ## 6. Storage และ performance
+
+**ความคืบหน้า:** เพิ่มการตั้งค่า Local `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` (เริ่มต้น 4096 MiB) เพื่อพัก Collector เมื่อประมาณการพื้นที่ที่จะใช้เกิน Soft Limit โดยไม่เลื่อน Bookmark และเพิ่ม `SYSWITNESS_RETENTION_DAYS` ซึ่ง **ปิดไว้โดยค่าเริ่มต้น** หากผู้ใช้เปิดใช้งานเองจึงจะลบสำเนา Event เก่าตามเวลาที่เก็บเข้าระบบ พร้อมบันทึกสรุปประวัติการลบแยก Channel โดยไม่แตะ Windows Event Log ต้นทาง การลบนี้ไม่รับประกันว่าไฟล์ SQLite จะหดลงทันที และยังไม่ใช่ Hard Quota ดู [STORAGE_POLICY_TH.md](STORAGE_POLICY_TH.md).
 - MVP: SQLite local + schema migrations; serialized writes, indexes ตาม workload
 - รักษา raw source แยกจาก normalized event และ derived analyses
 - มี retention, disk-quota, backpressure, checkpoints และ event loss diagnostics

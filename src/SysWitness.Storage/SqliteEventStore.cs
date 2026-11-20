@@ -9,15 +9,23 @@ namespace SysWitness.Storage;
 /// Persistent source evidence, durable native bookmarks and bounded read queries.
 /// No API caller can supply SQL; inputs only bind to predetermined parameters.
 /// </summary>
-public sealed class SqliteEventStore
+public sealed partial class SqliteEventStore
 {
     private readonly string _connectionString;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly string _databasePath;
+    private readonly StoragePolicy _policy;
 
-    public SqliteEventStore(string databasePath)
+    public SqliteEventStore(string databasePath, StoragePolicy? policy = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         var fullPath = Path.GetFullPath(databasePath);
+        _databasePath = fullPath;
+        _policy = policy ?? StoragePolicy.Default;
+        if (_policy.SoftLimitBytes < 1_048_576)
+            throw new ArgumentOutOfRangeException(nameof(policy), "Soft limit must be at least 1 MiB.");
+        if (_policy.RetentionDays is < 1 or > 3650)
+            throw new ArgumentOutOfRangeException(nameof(policy), "Retention days must be 1..3650.");
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -69,6 +77,17 @@ public sealed class SqliteEventStore
                 available_first_record_id INTEGER NULL,
                 available_last_record_id INTEGER NULL
             );
+            CREATE INDEX IF NOT EXISTS ix_events_observed
+                ON events(observed_at_utc ASC, event_id ASC);
+            CREATE TABLE IF NOT EXISTS retention_deletions (
+                deletion_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                deleted_at_utc TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                event_count INTEGER NOT NULL,
+                oldest_observed_at_utc TEXT NOT NULL,
+                newest_observed_at_utc TEXT NOT NULL,
+                cutoff_utc TEXT NOT NULL
+            );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -106,12 +125,14 @@ public sealed class SqliteEventStore
         await _writeLock.WaitAsync(ct);
         try
         {
+            var materialized = events.ToList();
+            EnsureWithinSoftBudget(materialized);
             await using var db = await OpenAsync(ct);
             await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
             var count = 0;
             var last = (ObservedEvent?)null;
 
-            foreach (var item in events)
+            foreach (var item in materialized)
             {
                 if (item.Channel != channel)
                     throw new ArgumentException("A collection batch cannot mix source channels.");
@@ -207,6 +228,7 @@ public sealed class SqliteEventStore
         await _writeLock.WaitAsync(ct);
         try
         {
+            EnsureWithinSoftBudget(materialized);
             await using var db = await OpenAsync(ct);
             await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
             var inserted = 0;

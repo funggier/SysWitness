@@ -4,7 +4,7 @@
 
 SysWitness เป็นโปรเจกต์สำรวจและบันทึกเหตุการณ์ของคอมพิวเตอร์อย่างละเอียด ทั้งระบบ เครือข่าย โปรเซส บัญชีผู้ใช้ ไฟล์ Registry และความปลอดภัย โดยมี API กลางให้โปรแกรมอื่นรวมถึง AI Local และ MCP Client **อ่าน ค้นหา และวิเคราะห์ข้อมูลได้เท่านั้น**
 
-> **Status:** M1/M2 observation prototype. Collects Windows **System** and **Application** Event Log channels independently by default (initial 256-event backfill per channel), then uses per-channel native EventBookmarks committed atomically with SQLite evidence. A read-only localhost API provides cursor pagination and structured filters. **Security** and **Sysmon** are explicit opt-ins and may be inaccessible. This is not lossless auditing; other deep telemetry collectors and client-scoped authorization are planned.
+> **Status:** M1/M2 observation prototype. Collects Windows **System** and **Application** Event Log channels independently by default (initial 256-event backfill per channel), then uses per-channel native EventBookmarks committed atomically with SQLite evidence. A read-only localhost API supports bounded searches and storage health. Local opt-in retention keeps deletion summaries; the default does **not** delete evidence. **Security** and **Sysmon** are explicit opt-ins and may be inaccessible. This is not lossless auditing; other deep telemetry collectors and client-scoped authorization are planned.
 
 ## Non-negotiable boundaries
 - **Observation only:** no firewall blocking, process termination, file quarantine, registry protection, remote shell, or system enforcement.
@@ -31,6 +31,7 @@ Windows Event Log | Sysmon | ETW | WFP | NTFS USN | device sources
 
 ## Project documents
 - [Current implementation status and next steps](docs/DEVELOPMENT_STATUS.md)
+- [Storage and retention policy (Thai)](docs/STORAGE_POLICY_TH.md)
 - [Detailed project plan (Thai)](docs/PROJECT_PLAN_TH.md)
 - [Architecture and system boundaries](docs/ARCHITECTURE.md)
 - [API contract and permissions](docs/API_CONTRACT.md)
@@ -68,10 +69,14 @@ Invoke-RestMethod http://127.0.0.1:8769/api/v1/events?limit=10 -Headers @{ 'X-Sy
 Invoke-RestMethod http://127.0.0.1:8769/api/v1/monitoring/coverage -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
 Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/monitoring/gaps?channel=Application' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
 Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/monitoring/coverage?channel=Application' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
+Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/storage/status' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
+Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/storage/retention' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
 Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/events?limit=20&channel=System&sourceEventId=6005' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
 ```
 
 **Collection source selection:** `SYSWITNESS_EVENT_CHANNELS` accepts a comma-separated local allowlist: `System`, `Application`, `Security`, `Microsoft-Windows-Sysmon/Operational`. The default is `System,Application`. Optional channels must already exist and be readable by this Windows account. An unavailable/permission-denied channel reports `degraded` without stopping the others; this program never changes Windows Audit Policy or installs Sysmon through its data API. The coverage response includes per-channel status and the gaps API accepts `?channel=...`.
+
+**Storage policy:** By default SysWitness never automatically removes event records. The soft storage budget defaults to 4096 MiB; ingest pauses with bookmark unchanged when a new batch would exceed the estimated budget. Local-only `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` adjusts the limit (16..1048576); setting `SYSWITNESS_RETENTION_DAYS` (1..3650) explicitly enables periodic cleanup of aged *local evidence copies*, with permanent summary records. This is a **soft** budget, not a guaranteed physical file quota. See [Storage policy](docs/STORAGE_POLICY_TH.md).
 
 Environment: `SYSWITNESS_PORT` changes the local port; `SYSWITNESS_DATA_DIRECTORY` overrides the default database folder (`data/` beside the executable), making the development prototype directory-portable when that directory is writable. Avoid putting sensitive database files into source control or read-only installed locations. This is **not** a full audit or security product. The initial 256-event historical backfill **per configured channel** is bounded; if older System records exist, the API records a visible `initial_history_outside_backfill_window` coverage gap. Native bookmarks reduce repeat/missed-event risk on restart, but cleared/rotated logs, provider losses, interruptions, and other circumstances can still cause missing records. Collection uses a 5-second polling interval; retention controls, per-client scopes, and MCP remain unimplemented. The API only accepts requests to localhost/127.0.0.1 and validates the HTTP Host header.
 

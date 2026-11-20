@@ -19,13 +19,17 @@ if (!string.IsNullOrWhiteSpace(portText) &&
 var configuredChannels = WindowsEventLogChannels.ParseEnabled(
     Environment.GetEnvironmentVariable("SYSWITNESS_EVENT_CHANNELS"));
 
+var storagePolicy = StoragePolicy.FromEnvironment();
+
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port));
 var dataDirectory = Environment.GetEnvironmentVariable("SYSWITNESS_DATA_DIRECTORY");
 if (string.IsNullOrWhiteSpace(dataDirectory))
     dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
-builder.Services.AddSingleton(new SqliteEventStore(Path.Combine(dataDirectory, "events.sqlite")));
+builder.Services.AddSingleton(new SqliteEventStore(
+    Path.Combine(dataDirectory, "events.sqlite"), storagePolicy));
 builder.Services.AddSingleton(new CollectionState(configuredChannels));
+builder.Services.AddHostedService<StorageMaintenanceService>();
 foreach (var channel in configuredChannels)
 {
     var sourceChannel = channel;
@@ -71,6 +75,23 @@ app.Use(async (context, next) =>
 });
 
 app.MapGet("/api/v1/health", () => Results.Ok(new { status = "ok", apiVersion = "v1" }));
+app.MapGet("/api/v1/storage/status",
+    async (SqliteEventStore store, CancellationToken ct) =>
+        Results.Ok(await store.GetStorageStatusAsync(ct)));
+app.MapGet("/api/v1/storage/retention",
+    async (HttpContext context, SqliteEventStore store, CancellationToken ct) =>
+    {
+        if (context.Request.Query.Count > 1 ||
+            context.Request.Query.Keys.Any(key => key != "limit") ||
+            context.Request.Query.Any(field => field.Value.Count != 1))
+            return Results.BadRequest(new { error = "invalid_query" });
+
+        var limit = 50;
+        if (context.Request.Query.TryGetValue("limit", out var value) &&
+            (!int.TryParse(value.ToString(), out limit) || limit is < 1 or > 100))
+            return Results.BadRequest(new { error = "invalid_limit" });
+        return Results.Ok(await store.GetRetentionHistoryAsync(limit, ct));
+    });
 app.MapGet("/api/v1/monitoring/coverage", (HttpContext context, CollectionState state) =>
 {
     if (context.Request.Query.Count == 0)

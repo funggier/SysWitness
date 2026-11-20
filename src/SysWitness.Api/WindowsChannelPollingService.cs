@@ -82,6 +82,13 @@ public sealed class WindowsChannelPollingService(
             {
                 return;
             }
+            catch (StoragePressureException)
+            {
+                sourceFailed = true;
+                state.SetError(source.Channel, "storage_soft_limit_reached");
+                logger.LogWarning("Observation paused on {Channel}: storage soft limit reached. Native bookmark unchanged.",
+                    source.Channel);
+            }
             catch (Exception error)
             {
                 sourceFailed = true;

@@ -90,12 +90,17 @@ try {
 
     $coverage = Start-TestApi
     Expect-Status '/api/v1/events' 'GET' 401 $false
+    Expect-Status '/api/v1/storage/status' 'GET' 401 $false
+    Expect-Status '/api/v1/storage/retention' 'GET' 401 $false
     Expect-Status '/api/v1/monitoring/gaps' 'GET' 401 $false
     Expect-Status '/api/v1/monitoring/coverage?channel=Application' 'GET' 401 $false
     Expect-Status '/api/v1/monitoring/coverage?channel=Unknown' 'GET' 404 $true
     Expect-Status '/api/v1/monitoring/coverage?ignored=1' 'GET' 400 $true
     Expect-Status '/api/v1/monitoring/gaps?channel=Unknown' 'GET' 404 $true
     Expect-Status '/api/v1/monitoring/gaps?limit=1000' 'GET' 400 $true
+    Expect-Status '/api/v1/storage/retention?limit=1000' 'GET' 400 $true
+    Expect-Status '/api/v1/storage/retention?invalid=1' 'GET' 400 $true
+    Expect-Status '/api/v1/storage/prune' 'POST' 404 $true
     Expect-Status '/api/v1/events?cursor=invalid' 'GET' 400 $true
     Expect-Status '/api/v1/events?limit=100000' 'GET' 400 $true
     Expect-Status '/api/v1/events?unknownField=1' 'GET' 400 $true
@@ -111,6 +116,16 @@ try {
         $rejectedHost = ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 400)
     }
     if (-not $rejectedHost) { throw 'Non-loopback Host header must be rejected' }
+
+    $storage = Invoke-RestMethod ($baseUrl + '/api/v1/storage/status') -Headers $headers -TimeoutSec 4
+    if ($storage.softLimitBytes -ne 4294967296 -or
+        $storage.retentionDays -ne $null -or $storage.storedEventCount -lt 1) {
+        throw 'Storage status does not expose accurate local default policy'
+    }
+    $retentionResponse = Invoke-WebRequest ($baseUrl + '/api/v1/storage/retention') -Headers $headers -TimeoutSec 4 -UseBasicParsing
+    if ($retentionResponse.Content.Trim() -ne '[]') {
+        throw 'Default storage policy must not delete evidence'
+    }
 
     $events = Invoke-RestMethod ($baseUrl + '/api/v1/events?limit=5') -Headers $headers -TimeoutSec 4
     if ($events.returned -gt 5) { throw 'Result limit ignored' }
@@ -189,7 +204,7 @@ try {
         $systemAfterOptional.lastRecordId -lt $firstRecordId) {
         throw 'Optional channel failure disrupted the System collector'
     }
-    Write-Host ('PASS: independent System/Application collectors, restart bookmarks, optional Sysmon='+ $optional[0].status + ', 401/400/404, read-only; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
+    Write-Host ('PASS: independent System/Application collectors, restart bookmarks, optional Sysmon='+ $optional[0].status + ', storage read-only status, default retention OFF, 401/400/404; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi

@@ -22,7 +22,9 @@
 
 ## M2 — Operational hardening
 - [x] Store Windows Event Log native bookmark and evidence in the same SQLite transaction; record initial-backfill and known reset/rotation coverage gaps
-- [ ] Retention, quota, resilience/backpressure tests, richer loss metrics
+- [x] Opt-in age-based retention, durable per-channel deletion summaries and read-only storage status API; test that bookmarks are unchanged
+- [x] Approximate disk soft budget that pauses ingestion without advancing source checkpoints; verified with oversized batch fixture
+- [ ] Full storage pressure accounting, safe SQLite compaction, free-disk guard, resilience/backpressure tests and richer source loss metrics
 - [x] Initial Windows GitHub Actions build and fixture test succeeded on commit `62c3b0f`; CI verification for subsequent commits remains ongoing
 - [x] Multi-channel native Windows Event Log readers for System/Application, separate bookmarks/health/gaps, optional Security/Sysmon with degraded-source isolation
 - [ ] Separate collection privilege boundary, local setup, full Health/Coverage views
