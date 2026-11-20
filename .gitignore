@@ -1,0 +1,35 @@
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+# Runtime telemetry and secrets
+data/
+logs/
+runtime/
+evidence/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.evtx
+*.etl
+*.pcap
+*.pcapng
+*.dmp
+*.log
+.env
+.env.*
+**/secrets.json
+**/credentials.json
+**/appsettings.Local.json
+*.pfx
+*.key
+*.pem
+# local release artifacts
+*.zip
+*.7z
+*.msi
