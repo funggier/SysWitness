@@ -56,6 +56,8 @@ Source -> Collector -> Normalize -> Append-only raw evidence
 - ควบคุม ingestion throughput ได้โดยแยก provider; ไม่ทำให้ Windows ไม่เสถียรเพื่อตรวจทุกอย่าง
 - ประเมินค่าใช้จ่าย CPU/RAM/disk และจำนวน events/sec จากการทดสอบจริงก่อนเปิด collector ที่มีปริมาณสูง
 
+**เพิ่มเติม (Disk Guard):** มีการตรวจพื้นที่ว่าง Volume ที่เก็บฐานข้อมูลก่อนเขียน Batch โดยตั้งขั้นต่ำจาก `SYSWITNESS_MIN_FREE_DISK_MB` (เริ่มต้น 1024 MiB) หากพื้นที่ไม่เพียงพอหรืออ่านค่าพื้นที่ว่างไม่ได้ ระบบจะไม่เพิ่ม Bookmark และแจ้ง `disk_free_reserve_reached` หรือ `disk_free_space_unknown` ผ่านสถานะเพื่อการตรวจดู นี่เป็นการตรวจเชิงป้องกันก่อนเขียน ไม่ใช่การจองพื้นที่หรือ Hard Quota.
+
 ## 7. API และการเชื่อมต่อ
 - /api/v1 บน HTTP JSON + OpenAPI; **GET** สำหรับข้อมูล และ **POST /events/query** สำหรับ read-only complex query เท่านั้น
 - Optional SSE / WebSocket feed พร้อม cursor/replay ภายใต้ retention
@@ -63,6 +65,8 @@ Source -> Collector -> Normalize -> Append-only raw evidence
 - API ไม่มี endpoint สำหรับ Windows actions, process control, firewall, configuration, arbitrary SQL หรือ code execution
 - MCP adapter เป็น optional package รองรับ read-only tools/resources เท่านั้น และเรียก API เดียวกับ Dashboard
 - Client ของระบบป้องกันภายนอกอ่านข้อมูลได้ ไม่สามารถสั่งให้ SysWitness ไปป้องกันแทน
+
+**เพิ่มเติม (API Client Keys):** Client ภายนอกเชื่อมต่อผ่าน Read-only API ด้วย Token เฉพาะโปรแกรม โดยค่า Hash (SHA-256) กับ ID/สิทธิ์อ่าน `events.read`, `coverage.read`, `storage.read` เก็บในไฟล์ Local ที่ระบุด้วย `SYSWITNESS_CLIENT_KEYS_FILE` ไม่ต้องเก็บ Token จริงใน GitHub และไม่เปิด API ให้ Client แก้ไขสิทธิ์ของตัวเอง ปัจจุบันกำหนดสิทธิ์ได้ตามหมวดเท่านั้น ยังไม่รองรับขอบเขตระดับ Event/Channel หรือการหมุน Key แบบไม่ Restart ดู [API_CLIENTS_TH.md](API_CLIENTS_TH.md).
 
 ## 8. การตรวจสอบความเที่ยงตรง
 แยก **observed**, **derived**, **inferred**, **unknown**; บันทึกแหล่งที่มาพร้อม correlation IDs, method, algorithm version และ confidence อ้างอิงหลักฐาน ไม่ใช้ AI verdict แทน raw event

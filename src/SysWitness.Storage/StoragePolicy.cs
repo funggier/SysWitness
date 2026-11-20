@@ -6,7 +6,10 @@ namespace SysWitness.Storage;
 /// Local-only storage controls. No remote API or AI can change this policy.
 /// Retention is OFF unless explicitly set; the soft storage budget pauses ingestion.
 /// </summary>
-public sealed record StoragePolicy(long SoftLimitBytes, int? RetentionDays)
+public sealed record StoragePolicy(
+    long SoftLimitBytes,
+    int? RetentionDays,
+    long MinFreeDiskBytes = 1024L * 1024 * 1024)
 {
     public static StoragePolicy Default { get; } = new(4L * 1024 * 1024 * 1024, null);
 
@@ -29,7 +32,15 @@ public sealed record StoragePolicy(long SoftLimitBytes, int? RetentionDays)
             days = parsed;
         }
 
-        return new StoragePolicy((long)limitMb * 1024 * 1024, days);
+        var minFreeMb = 1024;
+        var minFreeText = Environment.GetEnvironmentVariable("SYSWITNESS_MIN_FREE_DISK_MB");
+        if (!string.IsNullOrWhiteSpace(minFreeText) &&
+            (!int.TryParse(minFreeText, NumberStyles.None, CultureInfo.InvariantCulture, out minFreeMb)
+             || minFreeMb is < 128 or > 1048576))
+            throw new ArgumentException("SYSWITNESS_MIN_FREE_DISK_MB must be 128..1048576.");
+
+        return new StoragePolicy((long)limitMb * 1024 * 1024, days,
+            (long)minFreeMb * 1024 * 1024);
     }
 }
 
@@ -60,4 +71,9 @@ public sealed record StorageStatus(
     int? RetentionDays,
     long StoredEventCount,
     long RecordedRetentionDeletedEvents,
-    string Completeness);
+    string Completeness,
+    long MinFreeDiskBytes,
+    long? AvailableFreeDiskBytes,
+    bool DiskReserveReached,
+    bool CanAcceptNewEvidence,
+    string? IngestPauseReason);

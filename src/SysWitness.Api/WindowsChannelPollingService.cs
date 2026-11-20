@@ -89,6 +89,13 @@ public sealed class WindowsChannelPollingService(
                 logger.LogWarning("Observation paused on {Channel}: storage soft limit reached. Native bookmark unchanged.",
                     source.Channel);
             }
+            catch (StorageDiskSpaceException error)
+            {
+                sourceFailed = true;
+                state.SetError(source.Channel, error.Reason);
+                logger.LogWarning("Observation paused on {Channel}: {Reason}; source bookmark unchanged.",
+                    source.Channel, error.Reason);
+            }
             catch (Exception error)
             {
                 sourceFailed = true;

@@ -1,11 +1,11 @@
 # Data API Contract (Design)
 
-Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local configuration). **All public operations are data reads**; a POST is allowed only for structured, read-only queries.
+Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local configuration). **All implemented operations are GET data reads**. A POST for a structured, read-only query remains a future design option, not a current route.
 
 ## Endpoints (implemented and planned)
 | Method | Path | Description | Scope |
 |---|---|---|---|
-| GET | /health | API availability without machine-private details | health.read |
+| GET | /health | API availability without machine-private details | public (no token) |
 | GET | /system/summary | Approved machine overview | system.read |
 | GET | /monitoring/coverage | Aggregate and per-channel source health; optional `?channel=Application` | coverage.read |
 | GET | /monitoring/gaps | Source-specific gap history, `?channel=System&limit=50` | coverage.read |
@@ -20,11 +20,11 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /events/stream | Authenticated SSE with cursor and replay | events.stream |
 | GET | /schemas/events | Supported event schemas and field coverage | schema.read |
 
-**Implemented in M1/M2 prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc) and GET /events/{id}. All other endpoints are **planned**, not implemented. M1 uses a single shared 32+-character API token (X-SysWitness-Token), not yet per-client scoped tokens. Raw event XML remains in local SQLite and is not exposed by the initial API.
+**Implemented in M1/M2 prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc) and GET /events/{id}. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy all-read-scopes token or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
 
 ## Local storage policy (no remote configuration)
 - Retention is disabled by default. A *local* environment variable `SYSWITNESS_RETENTION_DAYS` may enable opt-in deletion of aged local event copies with durable summary records. `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` defaults to 4096 MiB and conservatively pauses ingestion on projected storage pressure without advancing bookmarks.
-- `GET /storage/status` exposes approximate physical SQLite/WAL/SHM bytes, configured soft limit, current evidence count, and total deleted by local retention.
+- `GET /storage/status` exposes approximate physical SQLite/WAL/SHM bytes, configured soft limit, current evidence count, and total deleted by local retention, plus `minFreeDiskBytes`, `availableFreeDiskBytes` (null if unavailable), `diskReserveReached`, `canAcceptNewEvidence`, and `ingestPauseReason`. The data is a point-in-time snapshot, not a guaranteed write reservation.
 - `GET /storage/retention` returns only durable deletion summary records. There is no POST to prune, change retention, or touch Windows Event Logs.
 - The soft limit is **not** a hard disk quota; SQLite file/WAL overhead can exceed the estimate. See [Storage policy](STORAGE_POLICY_TH.md).
 
@@ -38,18 +38,18 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 - **Current filters:** `limit` (1..500), `cursor` (opaque base64), `channel`, `category`, `provider`, `sourceEventId` (0..65535), `fromUtc` (inclusive), and `toUtc` (exclusive). UTC filters require timezone-aware timestamps such as `2026-11-20T11:00:00Z`; normalized UTC is used for comparisons. `nextCursor` is returned when there may be more records. Unknown or duplicate parameters produce HTTP 400.
 - **Planned filters:** source fields, process identity, IP/port, cross-source correlation and advanced search; do not assume they work today.
 - Limit defaults to 100 and is capped at 500; results order by `(occurred_at_utc DESC, event_id DESC)`; cursors support resuming pagination, not snapshot isolation under concurrent writes. No unlimited dumps.
-- Bound query cost, duration, and range; error response includes machine-readable code.
+- Implemented: bounded result count and structured filters. Future: query-cost budgets, enforced time-range limits and query-duration caps. Invalid input uses machine-readable error codes.
 - Unknown fields are null/omitted with coverage annotation; never fabricate a value.
 - Version under /api/v1; additive fields backward compatible; breaking changes in /api/v2.
 - OpenAPI contract and integration/authorization tests precede third-party SDK promises.
 
 ## Security model
 - Loopback-only by default; require explicit opt-in & secure transport for remote clients.
-- Authentication on data endpoints (health response minimized); per-client scopes.
-- Independent authorization for raw evidence; redact sensitive details before handing to models.
-- CORS/origin/host checks; anti-DNS-rebinding design, bounded body size, rate limits.
-- Immutable request audit metadata without logging credentials or sensitive payload by default.
-- Separate local config/setup: **not reachable through API**.
+- Authentication on data endpoints (health response minimized); implemented client-key registry (file-based SHA-256 hash list, up to 32 entries) and read scopes `events.read`, `coverage.read`, `storage.read`. The legacy `SYSWITNESS_API_TOKEN` is an optional backward-compatible all-read-scopes credential. All known routes are explicitly scoped, unknown paths fail closed.
+- Raw evidence API is still unavailable. Future raw evidence access needs independent authorization/redaction before handing data to AI models.
+- Current: loopback binding and Host validation; CORS policy hardening, explicit Origin checks, body-size budgets and rate limiting remain future tasks. No mutation or command endpoint exists.
+- Detailed read-access audit is still planned; do not log credentials or sensitive payloads. Client registry updates currently require restart; rotate/revoke by editing the local file and restarting.
+- Separate local config/setup: **not reachable through API**. See [Client authentication guide](API_CLIENTS_TH.md).
 
 ## Explicitly prohibited API routes
 No `/firewall/*`, `/protection/*`, `/processes/{id}/kill`, `/commands/*`, `/setup/*`, `/config/update`, arbitrary SQL, shell execution, or control callbacks.

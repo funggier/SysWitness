@@ -1,14 +1,12 @@
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
 using SysWitness.Api;
 using SysWitness.Core;
+using SysWitness.Security;
 using SysWitness.Storage;
 
-var token = Environment.GetEnvironmentVariable("SYSWITNESS_API_TOKEN");
-if (string.IsNullOrWhiteSpace(token) || token.Length < 32)
-    throw new InvalidOperationException(
-        "Set SYSWITNESS_API_TOKEN (at least 32 characters) before starting. No API is served without it.");
+var clients = ReadOnlyClientRegistry.Load(
+    Environment.GetEnvironmentVariable("SYSWITNESS_API_TOKEN"),
+    Environment.GetEnvironmentVariable("SYSWITNESS_CLIENT_KEYS_FILE"));
 
 var portText = Environment.GetEnvironmentVariable("SYSWITNESS_PORT");
 var port = 8769;
@@ -43,7 +41,6 @@ foreach (var channel in configuredChannels)
 var app = builder.Build();
 await app.Services.GetRequiredService<SqliteEventStore>().InitializeAsync();
 
-var expectedTokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
 app.Use(async (context, next) =>
 {
     context.Response.Headers.CacheControl = "no-store";
@@ -57,7 +54,8 @@ app.Use(async (context, next) =>
         return;
     }
 
-    if (context.Request.Path == "/api/v1/health")
+    if (context.Request.Path == "/api/v1/health" &&
+        HttpMethods.IsGet(context.Request.Method))
     {
         await next(context);
         return;
@@ -65,12 +63,25 @@ app.Use(async (context, next) =>
 
     if (!context.Request.Headers.TryGetValue("X-SysWitness-Token", out var presented) ||
         presented.Count != 1 ||
-        !CryptographicOperations.FixedTimeEquals(expectedTokenHash,
-            SHA256.HashData(Encoding.UTF8.GetBytes(presented.ToString()))))
+        !clients.TryAuthenticate(presented.ToString(), out var client))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return;
     }
+
+    var scope = ReadOnlyClientRegistry.RequiredScope(context.Request.Path.Value ?? "");
+    // No non-read method or unknown API path inherits permissions.
+    if (scope is null || !HttpMethods.IsGet(context.Request.Method))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+    if (!client!.CanRead(scope))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+
     await next(context);
 });
 

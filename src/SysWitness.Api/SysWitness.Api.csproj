@@ -4,6 +4,7 @@
     <ProjectReference Include="..\SysWitness.Contracts\SysWitness.Contracts.csproj" />
     <ProjectReference Include="..\SysWitness.Core\SysWitness.Core.csproj" />
     <ProjectReference Include="..\SysWitness.Storage\SysWitness.Storage.csproj" />
+    <ProjectReference Include="..\SysWitness.Security\SysWitness.Security.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

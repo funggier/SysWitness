@@ -10,6 +10,7 @@ SysWitness มีหน้าที่เก็บหลักฐานกิจ
 | ตัวแปร Environment | ค่าเริ่มต้น | ผลการทำงาน |
 |---|---:|---|
 | `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` | `4096` (4 GiB) | ขีดจำกัดโดยประมาณของไฟล์ SQLite + WAL + SHM; เลือกค่า 16–1,048,576 MiB |
+| `SYSWITNESS_MIN_FREE_DISK_MB` | `1024` (1 GiB) | สำรองพื้นที่ว่างบน Volume ที่มีฐานข้อมูลอย่างน้อย 1 GiB; เลือก 128–1,048,576 MiB |
 | `SYSWITNESS_RETENTION_DAYS` | **ไม่กำหนด = ปิด** | ถ้าต้องการให้ลบหลักฐานเก่าตามนโยบาย ให้กำหนด 1–3650 วันอย่างชัดเจน |
 | `SYSWITNESS_DATA_DIRECTORY` | `data/` ข้างโปรแกรม | เปลี่ยนโฟลเดอร์เก็บฐานข้อมูลโดยตั้งค่าจากเครื่องเอง ไม่ผ่าน API |
 
@@ -18,6 +19,7 @@ SysWitness มีหน้าที่เก็บหลักฐานกิจ
 ```powershell
 $env:SYSWITNESS_RETENTION_DAYS = '30'
 $env:SYSWITNESS_STORAGE_SOFT_LIMIT_MB = '8192'
+$env:SYSWITNESS_MIN_FREE_DISK_MB = '2048'
 dotnet run --project src/SysWitness.Api
 ```
 
@@ -46,6 +48,15 @@ dotnet run --project src/SysWitness.Api
 
 การเปิด Retention ช่วยให้ SQLite นำพื้นที่ภายในที่ถูกลบกลับมาใช้ได้ แต่จะไม่บังคับลดขนาดไฟล์ฐานข้อมูลกลับลงมาให้ต่ำกว่า Soft Limit โดยอัตโนมัติในรุ่นนี้ ต้องตรวจพื้นที่จริงและพิจารณาเครื่องมือซ่อมบำรุงแยกในอนาคต
 
+## Free Disk Guard — ตรวจพื้นที่ว่างของไดรฟ์จริง
+
+- ตรวจสอบ `AvailableFreeSpace` ของ Volume ที่เป็นที่ตั้ง `events.sqlite` ก่อนรับ Event Batch แต่ละครั้ง (ใช้ Path จริง ไม่สมมติว่าอยู่ C:)
+- ต้องเหลือพื้นที่ตาม `SYSWITNESS_MIN_FREE_DISK_MB` **รวม** ขนาดเพิ่มโดยประมาณของ Batch; หากไม่พอจะปฏิเสธการเขียนและไม่เลื่อน Bookmark
+- ถ้าไม่สามารถตรวจสอบพื้นที่ว่างของ Volume ได้ จะรายงาน `disk_free_space_unknown` และพักการรับ Event โดยไม่เดาว่าปลอดภัย
+- หากพื้นที่เหลือไม่พอ รายงาน `disk_free_reserve_reached`; หากเกิน Soft Limit ของฐานข้อมูล รายงาน `storage_soft_limit_reached`
+- สถานะ `/storage/status` เพิ่ม `minFreeDiskBytes`, `availableFreeDiskBytes`, `diskReserveReached`, `canAcceptNewEvidence`, `ingestPauseReason` เพื่อให้ Client/AI อ่านปัญหาได้โดยไม่ควบคุมระบบ
+- การตรวจพื้นที่ว่างเป็นภาพ ณ ขณะตรวจ ไม่ใช่การจองพื้นที่จริง: โปรแกรมอื่นสามารถใช้พื้นที่ระหว่างตรวจและเขียนได้ จึงยังไม่ใช่ Hard Quota และไม่รับประกันว่าดิสก์จะไม่เต็ม
+
 ## API สำหรับตรวจดู (Read-only)
 
 ```http
@@ -61,6 +72,6 @@ GET /api/v1/storage/retention?limit=50
 ## งานที่ยังไม่รองรับ
 - Hard quota ที่รับประกันขนาดไฟล์ไม่เกิน
 - ระบบ Reclaim/Disk Compaction อย่างปลอดภัยตามเงื่อนไขพื้นที่ว่าง
-- Disk-free-space Guard, ตรวจจับ IO/NTFS Error เชิงลึก
+- การรับประกันการจองพื้นที่จริง (ขณะนี้มี Free Disk Guard แบบตรวจค่าก่อนเขียนแล้ว), ตรวจจับ IO/NTFS Error เชิงลึก
 - การตั้งค่าผ่าน GUI/ไฟล์ Local แบบมีการตรวจสิทธิ์ (ขณะนี้ใช้ Environment)
 - การพิสูจน์ความถูกต้องแบบ End-to-End และสำรองข้อมูลหลักฐานแบบ Immutable

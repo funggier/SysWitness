@@ -1,4 +1,8 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using SysWitness.Security;
 using SysWitness.Contracts;
 using SysWitness.Core;
 using SysWitness.Storage;
@@ -28,6 +32,73 @@ Directory.CreateDirectory(temp);
 var path = Path.Combine(temp, "events.sqlite");
 try
 {
+    // Client registry contains SHA-256 hashes only, no raw credentials.
+    var clientFile = Path.Combine(temp, "clients.json");
+    var eventToken = new string('e', 64);
+    var storageToken = new string('s', 64);
+    string Hash(string value) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    File.WriteAllText(clientFile, JsonSerializer.Serialize(new
+    {
+        clients = new[]
+        {
+            new { id = "event-reader", tokenSha256 = Hash(eventToken), scopes = new[] { "events.read" } },
+            new { id = "storage-reader", tokenSha256 = Hash(storageToken), scopes = new[] { "storage.read" } }
+        }
+    }));
+    var registry = ReadOnlyClientRegistry.Load(null, clientFile);
+    Require(registry.TryAuthenticate(eventToken, out var eventClient) &&
+        eventClient!.CanRead(ReadOnlyClientRegistry.EventsRead) &&
+        !eventClient.CanRead(ReadOnlyClientRegistry.StorageRead) &&
+        !eventClient.CanRead(ReadOnlyClientRegistry.CoverageRead),
+        "Events-only client cannot access other data categories");
+    Require(registry.TryAuthenticate(storageToken, out var storageClient) &&
+        storageClient!.CanRead(ReadOnlyClientRegistry.StorageRead) &&
+        !storageClient.CanRead(ReadOnlyClientRegistry.EventsRead),
+        "Storage-only client cannot access event data");
+    Require(!registry.TryAuthenticate(new string('z', 64), out _),
+        "Unknown token denied");
+    var legacyRegistry = ReadOnlyClientRegistry.Load(new string('a', 64), clientFile);
+    Require(legacyRegistry.TryAuthenticate(new string('a', 64), out var legacy) &&
+        legacy!.CanRead(ReadOnlyClientRegistry.EventsRead) &&
+        legacy.CanRead(ReadOnlyClientRegistry.CoverageRead) &&
+        legacy.CanRead(ReadOnlyClientRegistry.StorageRead),
+        "Legacy token remains read-only with existing data scopes");
+    Require(ReadOnlyClientRegistry.RequiredScope("/api/v1/events") ==
+        ReadOnlyClientRegistry.EventsRead &&
+        ReadOnlyClientRegistry.RequiredScope("/api/v1/storage/status") ==
+        ReadOnlyClientRegistry.StorageRead &&
+        ReadOnlyClientRegistry.RequiredScope("/api/v1/events/delete") is null,
+        "Fail-closed routing never grants unknown paths a read scope");
+
+    var invalidConfig = Path.Combine(temp, "bad-clients.json");
+    File.WriteAllText(invalidConfig, """
+        {"clients":[{"id":"unsafe","tokenSha256":"not-a-hash","scopes":["events.read"]}]}
+        """);
+    var invalidRejected = false;
+    try { ReadOnlyClientRegistry.Load(null, invalidConfig); }
+    catch (InvalidDataException) { invalidRejected = true; }
+    Require(invalidRejected, "Malformed registry cannot start API");
+    File.WriteAllText(invalidConfig, JsonSerializer.Serialize(new
+    {
+        clients = new[] { new { id = "unsafe", tokenSha256 = Hash(eventToken),
+            scopes = new[] { "events.read", "windows.execute" } } }
+    }));
+    invalidRejected = false;
+    try { ReadOnlyClientRegistry.Load(null, invalidConfig); }
+    catch (InvalidDataException) { invalidRejected = true; }
+    Require(invalidRejected, "Unknown or control-oriented scopes are rejected");
+
+    File.WriteAllText(invalidConfig, JsonSerializer.Serialize(new
+    {
+        clients = new[] { new { id = "unsafe", tokenSha256 = Hash(eventToken),
+            token = eventToken, scopes = new[] { "events.read" } } }
+    }));
+    invalidRejected = false;
+    try { ReadOnlyClientRegistry.Load(null, invalidConfig); }
+    catch (InvalidDataException) { invalidRejected = true; }
+    Require(invalidRejected, "Client files reject accidental plaintext token properties");
+
     var store = new SqliteEventStore(path);
     await store.InitializeAsync();
     var timestamp = DateTimeOffset.Parse("2026-11-20T10:00:00Z");
@@ -237,8 +308,59 @@ try
         await pressureStore.GetByIdAsync(large.EventId) is null,
         "Soft budget rejection must leave both checkpoint and evidence unchanged");
 
+    // Simulate low free bytes deterministically without filling or modifying a real drive.
+    var guardPath = Path.Combine(temp, "disk-reserve.sqlite");
+    var guardPolicy = new StoragePolicy(16L * 1024 * 1024, null, MinFreeDiskBytes: 1024 * 1024);
+    var diskGuarded = new SqliteEventStore(guardPath, guardPolicy,
+        new StubFreeSpaceProbe(available: 1024 * 1024));
+    await diskGuarded.InitializeAsync();
+    var guardedEvent = AgeEvent(401, "System", now);
+    var reserveStopped = false;
+    try
+    {
+        await diskGuarded.CommitBatchAsync("System", [guardedEvent], "<bookmark>401</bookmark>", 401);
+    }
+    catch (StorageDiskSpaceException ex) when (ex.Reason == "disk_free_reserve_reached")
+    {
+        reserveStopped = true;
+    }
+    Require(reserveStopped, "An insufficient free-space reserve must block event writes");
+    Require(await diskGuarded.GetCheckpointAsync("System") is null &&
+        await diskGuarded.GetByIdAsync(guardedEvent.EventId) is null,
+        "Disk guard failure cannot write evidence or advance bookmark");
+    var lowDiskStatus = await diskGuarded.GetStorageStatusAsync();
+    Require(lowDiskStatus.DiskReserveReached && !lowDiskStatus.CanAcceptNewEvidence &&
+        lowDiskStatus.IngestPauseReason == "disk_free_reserve_reached" &&
+        lowDiskStatus.AvailableFreeDiskBytes == 1024 * 1024,
+        "Read-only storage status must report volume pressure accurately");
+
+    var unknownDisk = new SqliteEventStore(Path.Combine(temp, "unknown-disk.sqlite"),
+        guardPolicy, new StubFreeSpaceProbe(available: null));
+    await unknownDisk.InitializeAsync();
+    var unknownStopped = false;
+    try
+    {
+        await unknownDisk.InsertAsync([guardedEvent]);
+    }
+    catch (StorageDiskSpaceException ex) when (ex.Reason == "disk_free_space_unknown")
+    {
+        unknownStopped = true;
+    }
+    Require(unknownStopped && (await unknownDisk.GetStorageStatusAsync()).IngestPauseReason ==
+        "disk_free_space_unknown", "Unknown volume free space fails closed");
+
+    var ampleDisk = new SqliteEventStore(Path.Combine(temp, "ample-disk.sqlite"),
+        guardPolicy, new StubFreeSpaceProbe(available: 8 * 1024 * 1024));
+    await ampleDisk.InitializeAsync();
+    Require(await ampleDisk.CommitBatchAsync("System", [guardedEvent],
+        "<bookmark>401</bookmark>", 401) == 1,
+        "Adequate free-space reserve allows ingestion");
+    Require((await ampleDisk.GetStorageStatusAsync()).CanAcceptNewEvidence,
+        "Disk guard reports ready when volume has adequate available space");
+
     // Invalid local settings must fail closed; never silently accept a destructive policy.
     var previousDays = Environment.GetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS");
+    var previousMinFree = Environment.GetEnvironmentVariable("SYSWITNESS_MIN_FREE_DISK_MB");
     try
     {
         Environment.SetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS", "-1");
@@ -246,14 +368,21 @@ try
         try { StoragePolicy.FromEnvironment(); }
         catch (ArgumentException) { rejectedRetention = true; }
         Require(rejectedRetention, "Invalid local retention setting rejected");
+        Environment.SetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS", null);
+        Environment.SetEnvironmentVariable("SYSWITNESS_MIN_FREE_DISK_MB", "-1");
+        var rejectedReserve = false;
+        try { StoragePolicy.FromEnvironment(); }
+        catch (ArgumentException) { rejectedReserve = true; }
+        Require(rejectedReserve, "Invalid local minimum free disk setting rejected");
     }
     finally
     {
         Environment.SetEnvironmentVariable("SYSWITNESS_RETENTION_DAYS", previousDays);
+        Environment.SetEnvironmentVariable("SYSWITNESS_MIN_FREE_DISK_MB", previousMinFree);
     }
 
     Console.WriteLine("PASS: durable bookmarks, independent sources, cursor search, " +
-        "opt-in retention audit/restart, unchanged checkpoints and storage pressure pause");
+        "opt-in retention, disk-free guard and scoped read-only client keys");
 }
 finally
 {

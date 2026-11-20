@@ -40,6 +40,15 @@ public sealed partial class SqliteEventStore
         }
         if (physical + estimatedGrowth > _policy.SoftLimitBytes)
             throw new StoragePressureException();
+
+        // A soft database-size budget does NOT protect a shared volume.
+        // Refuse an event batch if available free bytes cannot be verified or
+        // cannot cover both configured reserve and estimated write growth.
+        var available = _spaceProbe.GetAvailableFreeBytes(_databasePath);
+        if (available is null)
+            throw new StorageDiskSpaceException("disk_free_space_unknown");
+        if (available.Value < _policy.MinFreeDiskBytes + estimatedGrowth)
+            throw new StorageDiskSpaceException("disk_free_reserve_reached");
     }
 
     public async Task<StorageStatus> GetStorageStatusAsync(CancellationToken ct = default)
@@ -56,11 +65,19 @@ public sealed partial class SqliteEventStore
         var deleted = reader.GetInt64(1);
         var sizes = PhysicalBytes();
         var physical = checked(sizes.Database + sizes.Wal + sizes.Shm);
+        var freeBytes = _spaceProbe.GetAvailableFreeBytes(_databasePath);
+        var reserveReached = freeBytes is not null && freeBytes <= _policy.MinFreeDiskBytes;
+        var sizeReached = physical >= _policy.SoftLimitBytes;
+        var pauseReason = sizeReached ? "storage_soft_limit_reached" :
+            freeBytes is null ? "disk_free_space_unknown" :
+            reserveReached ? "disk_free_reserve_reached" : null;
         return new StorageStatus(sizes.Database, sizes.Wal, sizes.Shm,
-            physical, _policy.SoftLimitBytes, physical >= _policy.SoftLimitBytes,
+            physical, _policy.SoftLimitBytes, sizeReached,
             _policy.RetentionDays, stored, deleted,
-            "Physical disk use is approximate (WAL changes); retention is opt-in. " +
-            "A soft limit pauses collection without advancing source checkpoints.");
+            "Physical disk bytes and disk availability are snapshots; neither is a hard quota. " +
+            "New batches can be paused before reaching the visible thresholds.",
+            _policy.MinFreeDiskBytes, freeBytes, reserveReached,
+            pauseReason is null, pauseReason);
     }
 
     /// <summary>

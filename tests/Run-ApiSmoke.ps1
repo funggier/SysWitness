@@ -12,6 +12,23 @@ $env:SYSWITNESS_API_TOKEN = $token
 $env:SYSWITNESS_PORT = [string]$port
 $env:SYSWITNESS_DATA_DIRECTORY = $testDir
 $env:SYSWITNESS_EVENT_CHANNELS = 'System,Application'
+
+# Separate read-only clients; only token hashes are stored in this temporary file.
+$eventsClientToken = 'event-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+$storageClientToken = 'store-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+function TokenHash([string]$value) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($value))
+        return -join ($hash | ForEach-Object { $_.ToString('x2') })
+    } finally { $sha.Dispose() }
+}
+$clientFile = Join-Path $testDir 'client-keys.json'
+@{ clients = @(
+    @{ id = 'events-client'; tokenSha256 = (TokenHash $eventsClientToken); scopes = @('events.read') },
+    @{ id = 'storage-client'; tokenSha256 = (TokenHash $storageClientToken); scopes = @('storage.read') }
+)} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $clientFile -Encoding UTF8
+$env:SYSWITNESS_CLIENT_KEYS_FILE = $clientFile
 $dll = Join-Path $repo 'src\SysWitness.Api\bin\Debug\net10.0\SysWitness.Api.dll'
 $baseUrl = 'http://127.0.0.1:' + $port
 $headers = @{ 'X-SysWitness-Token' = $token }
@@ -84,12 +101,35 @@ function Expect-Status([string]$path, [string]$method, [int]$status, [bool]$auth
     if ($found -ne $status) { throw ("Expected HTTP " + $status + " got " + $found + " for " + $path) }
 }
 
+function Expect-ScopedStatus([string]$credential, [string]$path, [int]$expected) {
+    $found = -1
+    try {
+        Invoke-WebRequest ($baseUrl + $path) -Headers @{
+            'X-SysWitness-Token' = $credential
+        } -TimeoutSec 4 -UseBasicParsing | Out-Null
+        $found = 200
+    } catch {
+        if ($_.Exception.Response) { $found = [int]$_.Exception.Response.StatusCode }
+    }
+    if ($found -ne $expected) {
+        throw ('Scoped access expected HTTP ' + $expected + ', got ' + $found + ' for ' + $path)
+    }
+}
+
 try {
     & dotnet build (Join-Path $repo 'SysWitness.sln') --nologo --verbosity quiet
     if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
     $coverage = Start-TestApi
     Expect-Status '/api/v1/events' 'GET' 401 $false
+    Expect-ScopedStatus $eventsClientToken '/api/v1/events?limit=1' 200
+    Expect-ScopedStatus $eventsClientToken '/api/v1/monitoring/coverage' 403
+    Expect-ScopedStatus $eventsClientToken '/api/v1/storage/status' 403
+    Expect-ScopedStatus $storageClientToken '/api/v1/storage/status' 200
+    Expect-ScopedStatus $storageClientToken '/api/v1/events' 403
+    Expect-ScopedStatus $storageClientToken '/api/v1/monitoring/gaps' 403
+    Expect-ScopedStatus $eventsClientToken '/api/v1/events/delete' 404
+    Expect-ScopedStatus ('invalid-' + [guid]::NewGuid().ToString('N')) '/api/v1/events' 401
     Expect-Status '/api/v1/storage/status' 'GET' 401 $false
     Expect-Status '/api/v1/storage/retention' 'GET' 401 $false
     Expect-Status '/api/v1/monitoring/gaps' 'GET' 401 $false
@@ -119,8 +159,15 @@ try {
 
     $storage = Invoke-RestMethod ($baseUrl + '/api/v1/storage/status') -Headers $headers -TimeoutSec 4
     if ($storage.softLimitBytes -ne 4294967296 -or
-        $storage.retentionDays -ne $null -or $storage.storedEventCount -lt 1) {
-        throw 'Storage status does not expose accurate local default policy'
+        $storage.retentionDays -ne $null -or $storage.storedEventCount -lt 1 -or
+        $storage.minFreeDiskBytes -ne 1073741824 -or
+        $null -eq $storage.availableFreeDiskBytes -or
+        $storage.availableFreeDiskBytes -le 0) {
+        throw 'Storage status does not expose accurate volume-space and local policy'
+    }
+    if ($storage.availableFreeDiskBytes -gt $storage.minFreeDiskBytes -and
+        $storage.softLimitReached -eq $false -and $storage.canAcceptNewEvidence -ne $true) {
+        throw 'Storage status should allow writes when the free-space guard permits them'
     }
     $retentionResponse = Invoke-WebRequest ($baseUrl + '/api/v1/storage/retention') -Headers $headers -TimeoutSec 4 -UseBasicParsing
     if ($retentionResponse.Content.Trim() -ne '[]') {
@@ -204,12 +251,13 @@ try {
         $systemAfterOptional.lastRecordId -lt $firstRecordId) {
         throw 'Optional channel failure disrupted the System collector'
     }
-    Write-Host ('PASS: independent System/Application collectors, restart bookmarks, optional Sysmon='+ $optional[0].status + ', storage read-only status, default retention OFF, 401/400/404; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
+    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi
     Remove-Item Env:SYSWITNESS_API_TOKEN -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_PORT -ErrorAction SilentlyContinue
+    Remove-Item Env:SYSWITNESS_CLIENT_KEYS_FILE -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_DATA_DIRECTORY -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_EVENT_CHANNELS -ErrorAction SilentlyContinue
     Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue

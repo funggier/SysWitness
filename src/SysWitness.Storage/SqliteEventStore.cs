@@ -15,17 +15,22 @@ public sealed partial class SqliteEventStore
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly string _databasePath;
     private readonly StoragePolicy _policy;
+    private readonly IStorageSpaceProbe _spaceProbe;
 
-    public SqliteEventStore(string databasePath, StoragePolicy? policy = null)
+    public SqliteEventStore(string databasePath, StoragePolicy? policy = null,
+        IStorageSpaceProbe? spaceProbe = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         var fullPath = Path.GetFullPath(databasePath);
         _databasePath = fullPath;
         _policy = policy ?? StoragePolicy.Default;
+        _spaceProbe = spaceProbe ?? new VolumeStorageSpaceProbe();
         if (_policy.SoftLimitBytes < 1_048_576)
             throw new ArgumentOutOfRangeException(nameof(policy), "Soft limit must be at least 1 MiB.");
         if (_policy.RetentionDays is < 1 or > 3650)
             throw new ArgumentOutOfRangeException(nameof(policy), "Retention days must be 1..3650.");
+        if (_policy.MinFreeDiskBytes < 0)
+            throw new ArgumentOutOfRangeException(nameof(policy), "Disk reserve cannot be negative.");
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         _connectionString = new SqliteConnectionStringBuilder
         {
