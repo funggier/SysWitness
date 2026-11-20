@@ -8,6 +8,15 @@ static void Require(bool condition, string message)
     if (!condition) throw new Exception("FAIL: " + message);
 }
 
+Require(WindowsEventLogChannels.ParseEnabled(null).SequenceEqual(["System", "Application"]),
+    "Default channel configuration is System and Application");
+Require(WindowsEventLogChannels.ParseEnabled("System, Application, application").SequenceEqual(
+    ["System", "Application"]), "Channel allowlist canonicalizes and deduplicates");
+bool invalidChannel = false;
+try { WindowsEventLogChannels.ParseEnabled("System,NotARealChannel"); }
+catch (ArgumentException) { invalidChannel = true; }
+Require(invalidChannel, "Unknown local channel configurations are rejected");
+
 var xml = "<Event><Data>test</Data></Event>";
 var idA = EventIdentity.FromXml("System", xml);
 Require(idA == EventIdentity.FromXml("System", xml), "Deterministic event identity");
@@ -68,9 +77,33 @@ try
     Require(gaps[0].Reason == "fixture_gap" && gaps[0].PreviousRecordId == 4,
         "Coverage gap metadata retained");
 
+    // A second source writes to the same store but never advances the first channel.
+    var applicationEvent = MakeEvent(99, "Application");
+    var applicationBookmark = "<BookmarkList><Bookmark Channel='Application' RecordId='99'/></BookmarkList>";
+    Require(await restoredStore.CommitBatchAsync("Application", [applicationEvent],
+        applicationBookmark, 99) == 1, "Second source writes independent evidence");
+    Require((await restoredStore.GetCheckpointAsync("Application"))?.BookmarkXml ==
+        applicationBookmark, "Second source persists independent native bookmark");
+    Require((await restoredStore.GetCheckpointAsync("System"))?.RecordId == 5,
+        "Application checkpoint cannot alter System checkpoint");
+    Require(await restoredStore.CountGapsAsync("Application") == 0,
+        "Gap histories are independently scoped by channel");
+
+    var wrongChannelRejected = false;
+    try
+    {
+        await restoredStore.CommitBatchAsync("System", [MakeEvent(100, "Application")],
+            applicationBookmark, 100);
+    }
+    catch (ArgumentException) { wrongChannelRejected = true; }
+    Require(wrongChannelRejected, "Mixed-channel commit is rejected atomically");
+    Require((await restoredStore.GetCheckpointAsync("System"))?.RecordId == 5,
+        "Rejected mixed-channel commit preserves first-source bookmark");
+
     var remaining = Enumerable.Range(6, 8).Select(i => MakeEvent(i)).ToArray();
     await restoredStore.InsertAsync(remaining);
-    await restoredStore.InsertAsync(new[] { MakeEvent(99, "Application") });
+    Require(await restoredStore.InsertAsync([applicationEvent]) == 0,
+        "Duplicate second-source event does not overwrite evidence");
 
     var seen = new HashSet<string>();
     string? cursor = null;

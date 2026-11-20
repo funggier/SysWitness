@@ -16,15 +16,25 @@ if (!string.IsNullOrWhiteSpace(portText) &&
     (!int.TryParse(portText, out port) || port is < 1 or > 65535))
     throw new InvalidOperationException("SYSWITNESS_PORT must be a valid TCP port (1-65535).");
 
+var configuredChannels = WindowsEventLogChannels.ParseEnabled(
+    Environment.GetEnvironmentVariable("SYSWITNESS_EVENT_CHANNELS"));
+
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port));
 var dataDirectory = Environment.GetEnvironmentVariable("SYSWITNESS_DATA_DIRECTORY");
 if (string.IsNullOrWhiteSpace(dataDirectory))
     dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
 builder.Services.AddSingleton(new SqliteEventStore(Path.Combine(dataDirectory, "events.sqlite")));
-builder.Services.AddSingleton(new WindowsEventLogReader("System"));
-builder.Services.AddSingleton<CollectionState>();
-builder.Services.AddHostedService<SystemEventPollingService>();
+builder.Services.AddSingleton(new CollectionState(configuredChannels));
+foreach (var channel in configuredChannels)
+{
+    var sourceChannel = channel;
+    builder.Services.AddSingleton<IHostedService>(sp => new WindowsChannelPollingService(
+        new WindowsEventLogReader(sourceChannel),
+        sp.GetRequiredService<SqliteEventStore>(),
+        sp.GetRequiredService<CollectionState>(),
+        sp.GetRequiredService<ILogger<WindowsChannelPollingService>>()));
+}
 
 var app = builder.Build();
 await app.Services.GetRequiredService<SqliteEventStore>().InitializeAsync();
@@ -61,10 +71,41 @@ app.Use(async (context, next) =>
 });
 
 app.MapGet("/api/v1/health", () => Results.Ok(new { status = "ok", apiVersion = "v1" }));
-app.MapGet("/api/v1/monitoring/coverage",
-    (CollectionState state) => Results.Ok(state.Snapshot()));
-app.MapGet("/api/v1/monitoring/gaps", async (SqliteEventStore store, CancellationToken ct) =>
-    Results.Ok(await store.GetGapsAsync("System", 50, ct)));
+app.MapGet("/api/v1/monitoring/coverage", (HttpContext context, CollectionState state) =>
+{
+    if (context.Request.Query.Count == 0)
+        return Results.Ok(state.Snapshot());
+
+    if (context.Request.Query.Count != 1 ||
+        !context.Request.Query.TryGetValue("channel", out var names) || names.Count != 1 ||
+        string.IsNullOrWhiteSpace(names[0]))
+        return Results.BadRequest(new { error = "invalid_query" });
+
+    var source = state.ForChannel(names[0]!);
+    return source is null
+        ? Results.NotFound(new { error = "channel_not_configured" })
+        : Results.Ok(source);
+});
+app.MapGet("/api/v1/monitoring/gaps",
+    async (HttpContext context, CollectionState state, SqliteEventStore store, CancellationToken ct) =>
+{
+    if (context.Request.Query.Keys.Any(key => key is not ("channel" or "limit")) ||
+        context.Request.Query.Any(entry => entry.Value.Count != 1))
+        return Results.BadRequest(new { error = "invalid_query" });
+
+    var requestedChannel = context.Request.Query.TryGetValue("channel", out var value)
+        ? value.ToString() : state.IsConfigured("System") ? "System" : state.Channels[0];
+    var channel = state.ForChannel(requestedChannel)?.Channel;
+    if (channel is null)
+        return Results.NotFound(new { error = "channel_not_configured" });
+
+    var limit = 50;
+    if (context.Request.Query.TryGetValue("limit", out var limitValue) &&
+        (!int.TryParse(limitValue.ToString(), out limit) || limit is < 1 or > 100))
+        return Results.BadRequest(new { error = "invalid_limit" });
+
+    return Results.Ok(await store.GetGapsAsync(channel, limit, ct));
+});
 app.MapGet("/api/v1/events", async (HttpContext context, SqliteEventStore store, CancellationToken ct) =>
 {
     if (!EventQueryParser.TryParse(context.Request, out var query, out var error))

@@ -8,11 +8,11 @@ namespace SysWitness.Api;
 /// Read-only Windows collector. EventBookmark and records are committed in one SQLite transaction.
 /// A cleared/overwritten log is recorded as a coverage gap; this is not lossless ETW streaming.
 /// </summary>
-public sealed class SystemEventPollingService(
+public sealed class WindowsChannelPollingService(
     WindowsEventLogReader source,
     SqliteEventStore store,
     CollectionState state,
-    ILogger<SystemEventPollingService> logger) : BackgroundService
+    ILogger<WindowsChannelPollingService> logger) : BackgroundService
 {
     private const int MaxBatch = 256;
 
@@ -21,6 +21,7 @@ public sealed class SystemEventPollingService(
         while (!stoppingToken.IsCancellationRequested)
         {
             var mayHaveMore = false;
+            var sourceFailed = false;
             try
             {
                 var checkpoint = await store.GetCheckpointAsync(source.Channel, stoppingToken);
@@ -71,10 +72,11 @@ public sealed class SystemEventPollingService(
                 // An empty polling cycle does not erase the durable previously committed position.
                 var visibleRecordId = batch.LastRecordId ??
                     (gapReason is null ? checkpoint?.RecordId : null);
-                state.SetSuccess(batch.Events.Count, recordedGaps, visibleRecordId);
+                state.SetSuccess(source.Channel, batch.Events.Count, recordedGaps, visibleRecordId);
                 if (gapReason is not null)
                     logger.LogWarning("Source coverage gap detected: {Reason} on {Channel}", gapReason, source.Channel);
-                logger.LogDebug("Read {Count} records; stored {Inserted}", batch.Events.Count, added);
+                logger.LogDebug("Channel {Channel}: read {Count}, stored {Inserted}",
+                    source.Channel, batch.Events.Count, added);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -82,11 +84,16 @@ public sealed class SystemEventPollingService(
             }
             catch (Exception error)
             {
-                state.SetError(error.GetType().Name);
-                logger.LogWarning("Event collection degraded: {ErrorType}", error.GetType().Name);
+                sourceFailed = true;
+                state.SetError(source.Channel, error.GetType().Name);
+                logger.LogWarning("Event collection degraded on {Channel}: {ErrorType}",
+                    source.Channel, error.GetType().Name);
             }
 
-            await Task.Delay(mayHaveMore ? TimeSpan.FromMilliseconds(200) : TimeSpan.FromSeconds(5), stoppingToken);
+            // Unavailable optional channels must not flood logs or slow other collectors.
+            var delay = sourceFailed ? TimeSpan.FromSeconds(30) :
+                mayHaveMore ? TimeSpan.FromMilliseconds(200) : TimeSpan.FromSeconds(5);
+            await Task.Delay(delay, stoppingToken);
         }
     }
 }

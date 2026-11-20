@@ -11,6 +11,7 @@ $token = -join ($bytes | ForEach-Object { $_.ToString('x2') })
 $env:SYSWITNESS_API_TOKEN = $token
 $env:SYSWITNESS_PORT = [string]$port
 $env:SYSWITNESS_DATA_DIRECTORY = $testDir
+$env:SYSWITNESS_EVENT_CHANNELS = 'System,Application'
 $dll = Join-Path $repo 'src\SysWitness.Api\bin\Debug\net10.0\SysWitness.Api.dll'
 $baseUrl = 'http://127.0.0.1:' + $port
 $headers = @{ 'X-SysWitness-Token' = $token }
@@ -37,7 +38,15 @@ function Start-TestApi {
         try {
             $health = Invoke-RestMethod ($baseUrl + '/api/v1/health') -TimeoutSec 2
             $coverage = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 2
-            if ($health.status -eq 'ok' -and $coverage.status -eq 'collecting') {
+            $systemStatus = @($coverage.channels | Where-Object { $_.channel -eq 'System' })
+            $applicationStatus = @($coverage.channels | Where-Object { $_.channel -eq 'Application' })
+            $notReady = @($coverage.channels | Where-Object {
+                $_.status -ne 'collecting' -and $_.status -ne 'degraded'
+            })
+            if ($health.status -eq 'ok' -and $systemStatus.Count -eq 1 -and
+                $applicationStatus.Count -eq 1 -and
+                $systemStatus[0].status -eq 'collecting' -and
+                $applicationStatus[0].status -eq 'collecting' -and $notReady.Count -eq 0) {
                 $ready = $true
                 break
             }
@@ -46,6 +55,18 @@ function Start-TestApi {
     if (-not $ready) {
         Get-Content $errFile -Tail 20 -ErrorAction SilentlyContinue
         throw 'API did not start or collector did not initialize'
+    }
+    $channels = @($coverage.channels)
+    if ($channels.Count -lt 2 -or
+        -not (@($channels.channel) -contains 'System') -or
+        -not (@($channels.channel) -contains 'Application')) {
+        throw 'Expected independently configured System and Application collectors'
+    }
+    foreach ($channel in $channels) {
+        if ($channel.channel -in @('System', 'Application') -and
+            ($channel.status -ne 'collecting' -or $null -eq $channel.lastRecordId)) {
+            throw ('Required channel collector did not initialize: ' + $channel.channel)
+        }
     }
     return $coverage
 }
@@ -70,6 +91,11 @@ try {
     $coverage = Start-TestApi
     Expect-Status '/api/v1/events' 'GET' 401 $false
     Expect-Status '/api/v1/monitoring/gaps' 'GET' 401 $false
+    Expect-Status '/api/v1/monitoring/coverage?channel=Application' 'GET' 401 $false
+    Expect-Status '/api/v1/monitoring/coverage?channel=Unknown' 'GET' 404 $true
+    Expect-Status '/api/v1/monitoring/coverage?ignored=1' 'GET' 400 $true
+    Expect-Status '/api/v1/monitoring/gaps?channel=Unknown' 'GET' 404 $true
+    Expect-Status '/api/v1/monitoring/gaps?limit=1000' 'GET' 400 $true
     Expect-Status '/api/v1/events?cursor=invalid' 'GET' 400 $true
     Expect-Status '/api/v1/events?limit=100000' 'GET' 400 $true
     Expect-Status '/api/v1/events?unknownField=1' 'GET' 400 $true
@@ -107,12 +133,23 @@ try {
             throw 'Provider filter returned incorrect data'
         }
     }
-    $gaps = @(Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/gaps') -Headers $headers -TimeoutSec 4)
+    $application = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage?channel=Application') -Headers $headers -TimeoutSec 4
+    if ($application.channel -ne 'Application' -or $application.status -ne 'collecting') {
+        throw 'Application collector status missing from per-channel API'
+    }
+    $appEvents = Invoke-RestMethod ($baseUrl + '/api/v1/events?channel=Application&limit=2') -Headers $headers -TimeoutSec 4
+    if ($appEvents.returned -lt 1 -or (@($appEvents.items | Where-Object channel -ne 'Application').Count -gt 0)) {
+        throw 'Application events are not queryable independently'
+    }
+    $appGaps = @(Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/gaps?channel=Application') -Headers $headers -TimeoutSec 4)
+    $gaps = @(Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/gaps?channel=System') -Headers $headers -TimeoutSec 4)
     if ($coverage.recordedGaps -gt 0 -and ($gaps.Count -eq 0 -or -not $gaps[0].reason)) {
         throw 'Recorded coverage gaps must be inspectable through the read-only API'
     }
     $firstRecordId = $coverage.lastRecordId
     $firstGapCount = $coverage.recordedGaps
+    $appFirstRecordId = $application.lastRecordId
+    $appFirstGapCount = $application.recordedGaps
     if ($firstRecordId -eq $null) { throw 'Expected Windows System events for restart test' }
 
     Stop-TestApi
@@ -120,14 +157,45 @@ try {
     $resumed = Start-TestApi
     if ($resumed.lastRecordId -lt $firstRecordId) { throw 'Checkpoint regressed across restart' }
     if ($resumed.recordedGaps -ne $firstGapCount) {
-        throw 'Native bookmark restart unexpectedly recorded a coverage gap'
+        throw 'Native System bookmark restart unexpectedly recorded a coverage gap'
     }
-    Write-Host ('PASS: Windows event bootstrap/resume, durable bookmark, 401, 400, no control endpoint; returned=' + $events.returned + ', gaps=' + $resumed.recordedGaps)
+    $appResumed = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage?channel=Application') -Headers $headers -TimeoutSec 4
+    if ($appResumed.lastRecordId -lt $appFirstRecordId -or
+        $appResumed.recordedGaps -ne $appFirstGapCount) {
+        throw 'Application bookmark restart failed independently of System'
+    }
+    # An optional unavailable channel must appear as degraded without breaking the core channels.
+    Stop-TestApi
+    $env:SYSWITNESS_EVENT_CHANNELS = 'System,Application,Microsoft-Windows-Sysmon/Operational'
+    $extended = Start-TestApi
+    $optional = @($extended.channels | Where-Object {
+        $_.channel -eq 'Microsoft-Windows-Sysmon/Operational'
+    })
+    if ($optional.Count -ne 1 -or $optional[0].status -notin @('collecting','degraded')) {
+        throw 'Optional Sysmon channel did not report an independent status'
+    }
+    if ($optional[0].status -eq 'degraded' -and -not $optional[0].lastError) {
+        throw 'Degraded optional channel must report a diagnostic error class'
+    }
+    if (@($extended.configuredCollectors).Count -ne 3) {
+        throw 'Configured channels must appear even if a collector is unavailable'
+    }
+    if ($optional[0].status -eq 'degraded' -and
+        @($extended.enabledCollectors) -contains 'windows-eventlog:Microsoft-Windows-Sysmon/Operational') {
+        throw 'Unavailable collector must not be reported as enabled'
+    }
+    $systemAfterOptional = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage?channel=System') -Headers $headers -TimeoutSec 4
+    if ($systemAfterOptional.status -ne 'collecting' -or
+        $systemAfterOptional.lastRecordId -lt $firstRecordId) {
+        throw 'Optional channel failure disrupted the System collector'
+    }
+    Write-Host ('PASS: independent System/Application collectors, restart bookmarks, optional Sysmon='+ $optional[0].status + ', 401/400/404, read-only; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi
     Remove-Item Env:SYSWITNESS_API_TOKEN -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_PORT -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_DATA_DIRECTORY -ErrorAction SilentlyContinue
+    Remove-Item Env:SYSWITNESS_EVENT_CHANNELS -ErrorAction SilentlyContinue
     Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
 }

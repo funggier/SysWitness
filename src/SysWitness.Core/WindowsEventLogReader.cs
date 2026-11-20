@@ -14,8 +14,8 @@ public sealed class WindowsEventLogReader
 
     public WindowsEventLogReader(string channel = "System")
     {
-        if (channel is not ("System" or "Application"))
-            throw new ArgumentException("Only System and Application are enabled in the initial build.", nameof(channel));
+        if (!WindowsEventLogChannels.IsSupported(channel))
+            throw new ArgumentException("Unsupported Windows Event Log channel.", nameof(channel));
         _channel = channel;
     }
 

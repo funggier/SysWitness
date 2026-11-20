@@ -23,12 +23,13 @@
 ## M2 — Operational hardening
 - [x] Store Windows Event Log native bookmark and evidence in the same SQLite transaction; record initial-backfill and known reset/rotation coverage gaps
 - [ ] Retention, quota, resilience/backpressure tests, richer loss metrics
-- [ ] CI results confirmed and repeatable on clean Windows runner
-- [ ] Separate collection privilege boundary, local setup, Health/Coverage views
+- [x] Initial Windows GitHub Actions build and fixture test succeeded on commit `62c3b0f`; CI verification for subsequent commits remains ongoing
+- [x] Multi-channel native Windows Event Log readers for System/Application, separate bookmarks/health/gaps, optional Security/Sysmon with degraded-source isolation
+- [ ] Separate collection privilege boundary, local setup, full Health/Coverage views
 - [ ] Per-client read scopes, redaction, rotation, audit and misuse tests
 
 ## M3 — Deep telemetry
-- [ ] Pluggable Sysmon reader and identity link
+- [ ] Parse Sysmon events into structured process/network identity (opt-in Sysmon Event Log *reading* is supported but not decoded/correlated)
 - [ ] ETW/WFP/network collectors with measured impact and loss reporting
 - [ ] File/Registry/service/device source adapters with explicit coverage limitations
 - [ ] Workload performance and disk impact benchmarks
