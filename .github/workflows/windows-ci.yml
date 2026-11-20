@@ -1,0 +1,31 @@
+name: Windows build and evidence tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore SysWitness.sln
+      - name: Build (warnings treated as errors)
+        run: dotnet build SysWitness.sln -c Release --no-restore --nologo -warnaserror
+      - name: SQLite, checkpoint, rollback and search smoke tests
+        run: dotnet run --project tests/SysWitness.SmokeTests -c Release --no-build
+
+# Live Windows Event Log API tests are run locally by tests/Run-ApiSmoke.ps1
+# against a disposable database. They are not used as a CI release guarantee.

@@ -18,7 +18,7 @@
 5. Future protection product: separately installed/runtime permissions; no callback command channel into SysWitness.
 
 ## Runtime processes
-Initial MVP can host collector, local storage, and API in a single *unprivileged* service when only non-privileged sources are selected. For elevated sources, split collector into an isolated, least-privilege process and use authenticated local IPC. **Do not run a network-facing web API as administrator by default.**
+Initial MVP hosts the System Event Log collector, SQLite database and HTTP API in a single *unprivileged* local process; the database defaults to `data/` beside the executable (writable, protected folder required), or to a path set by `SYSWITNESS_DATA_DIRECTORY`. For elevated sources, split collector into an isolated, least-privilege process and use authenticated local IPC. **Do not run a network-facing web API as administrator by default.**
 
 ## Deep monitoring caveats
 - Event source availability, audit policy, and provider versions determine actual observability.

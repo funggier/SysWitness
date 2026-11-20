@@ -20,9 +20,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port));
 var dataDirectory = Environment.GetEnvironmentVariable("SYSWITNESS_DATA_DIRECTORY");
 if (string.IsNullOrWhiteSpace(dataDirectory))
-    dataDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SysWitness", "data");
+    dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
 builder.Services.AddSingleton(new SqliteEventStore(Path.Combine(dataDirectory, "events.sqlite")));
 builder.Services.AddSingleton(new WindowsEventLogReader("System"));
 builder.Services.AddSingleton<CollectionState>();
@@ -34,6 +32,17 @@ await app.Services.GetRequiredService<SqliteEventStore>().InitializeAsync();
 var expectedTokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
 app.Use(async (context, next) =>
 {
+    context.Response.Headers.CacheControl = "no-store";
+
+    // An HTTP request on loopback can still arrive with an attacker-controlled Host header.
+    // Reject non-loopback host names to reduce DNS-rebinding exposure.
+    if (!string.Equals(context.Request.Host.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(context.Request.Host.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return;
+    }
+
     if (context.Request.Path == "/api/v1/health")
     {
         await next(context);
@@ -54,13 +63,20 @@ app.Use(async (context, next) =>
 app.MapGet("/api/v1/health", () => Results.Ok(new { status = "ok", apiVersion = "v1" }));
 app.MapGet("/api/v1/monitoring/coverage",
     (CollectionState state) => Results.Ok(state.Snapshot()));
+app.MapGet("/api/v1/monitoring/gaps", async (SqliteEventStore store, CancellationToken ct) =>
+    Results.Ok(await store.GetGapsAsync("System", 50, ct)));
 app.MapGet("/api/v1/events", async (HttpContext context, SqliteEventStore store, CancellationToken ct) =>
 {
-    var value = context.Request.Query["limit"].ToString();
-    var limit = 100;
-    if (!string.IsNullOrWhiteSpace(value) && (!int.TryParse(value, out limit) || limit is < 1 or > 500))
-        return Results.BadRequest(new { error = "invalid_limit", message = "limit must be 1..500" });
-    return Results.Ok(await store.GetRecentAsync(limit, ct));
+    if (!EventQueryParser.TryParse(context.Request, out var query, out var error))
+        return Results.BadRequest(new { error = "invalid_query", message = error });
+    try
+    {
+        return Results.Ok(await store.GetPageAsync(query!, ct));
+    }
+    catch (ArgumentException)
+    {
+        return Results.BadRequest(new { error = "invalid_query", message = "Invalid query filters or cursor." });
+    }
 });
 app.MapGet("/api/v1/events/{eventId}", async (string eventId, SqliteEventStore store, CancellationToken ct) =>
 {

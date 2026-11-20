@@ -11,16 +11,19 @@
 
 ## M1 — Minimal vertical slice
 - [x] .NET solution and modular projects
-- [x] Read one safe Windows Event Log channel in initial *sampling* mode (not yet lossless)
+- [x] Read Windows System Event Log with native checkpointed polling, bounded initial history and explicit coverage limitations (not lossless)
 - [x] Store actual System events to local SQLite using stable evidence-derived identity (basic normalization)
-- [x] Serve token-authenticated localhost-only /api/v1 events and coverage (initial single-token model)
-- [ ] Implement cursor pagination and broader authentication/authorization tests; initial automated HTTP integration smoke passes (401, localhost, data-only API, live System events)
-- [ ] Demonstrate restart/replay and document source permissions
+- [x] Serve token-authenticated localhost-only /api/v1 events, coverage and gap history (initial single-token model)
+- [x] Implement bounded cursor pagination, structured filters and automated HTTP smoke tests (401, 400, localhost Host rejection, data-only API and live System events)
+- [ ] Add independent per-client authorization and further security/integration tests (M2)
+- [x] Demonstrate native EventBookmark recovery across real API restart; document source permissions and bounded initial backfill
 
-**Gate:** observed source event -> evidence -> query response -> tests on real Windows without requiring Dashboard/MCP.
+**Gate:** observed source event -> evidence -> query response -> restart/replay smoke on real Windows without Dashboard/MCP. **Passed locally on 2026-11-20**, with source-coverage limitations documented.
 
 ## M2 — Operational hardening
-- [ ] Native-source bookmarks, retention, quota, resilience, backpressure and metrics
+- [x] Store Windows Event Log native bookmark and evidence in the same SQLite transaction; record initial-backfill and known reset/rotation coverage gaps
+- [ ] Retention, quota, resilience/backpressure tests, richer loss metrics
+- [ ] CI results confirmed and repeatable on clean Windows runner
 - [ ] Separate collection privilege boundary, local setup, Health/Coverage views
 - [ ] Per-client read scopes, redaction, rotation, audit and misuse tests
 

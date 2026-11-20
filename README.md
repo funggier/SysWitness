@@ -4,7 +4,7 @@
 
 SysWitness เป็นโปรเจกต์สำรวจและบันทึกเหตุการณ์ของคอมพิวเตอร์อย่างละเอียด ทั้งระบบ เครือข่าย โปรเซส บัญชีผู้ใช้ ไฟล์ Registry และความปลอดภัย โดยมี API กลางให้โปรแกรมอื่นรวมถึง AI Local และ MCP Client **อ่าน ค้นหา และวิเคราะห์ข้อมูลได้เท่านั้น**
 
-> **Status:** Early M1 prototype. Reads the latest Windows **System** channel records by polling and stores them in local SQLite. Authenticated read-only localhost API is operational; polling can miss events. The roadmap describes many unimplemented features.
+> **Status:** M1 observation prototype. Initial startup backfills up to 256 Windows **System** events, then polls forward using a native Windows Event Log bookmark persisted atomically with SQLite evidence. Read-only localhost API supports cursor pagination and structured filters. It is not a guarantee of lossless auditing: other collectors and client-scoped authorization are planned.
 
 ## Non-negotiable boundaries
 - **Observation only:** no firewall blocking, process termination, file quarantine, registry protection, remote shell, or system enforcement.
@@ -30,6 +30,7 @@ Windows Event Log | Sysmon | ETW | WFP | NTFS USN | device sources
 ```
 
 ## Project documents
+- [Current implementation status and next steps](docs/DEVELOPMENT_STATUS.md)
 - [Detailed project plan (Thai)](docs/PROJECT_PLAN_TH.md)
 - [Architecture and system boundaries](docs/ARCHITECTURE.md)
 - [API contract and permissions](docs/API_CONTRACT.md)
@@ -38,6 +39,7 @@ Windows Event Log | Sysmon | ETW | WFP | NTFS USN | device sources
 - [Milestones and acceptance criteria](docs/ROADMAP.md)
 - [Architecture decision: observation-only](docs/decisions/0001-observation-only.md)
 - [Third-party dependency notices](docs/THIRD_PARTY_NOTICES.md)
+- [Windows CI pipeline](.github/workflows/windows-ci.yml)
 
 ## Proposed technology
 C#/.NET 10, ASP.NET Core Minimal API, SQLite in MVP, Windows Event Log as initial provider. Future integrations are modular and opt-in. Elevated Windows audit configuration is a distinct local setup operation, **not** a remote API feature.
@@ -63,9 +65,11 @@ In a separate terminal, use the same secret as `X-SysWitness-Token` (never share
 Invoke-RestMethod http://127.0.0.1:8769/api/v1/health
 Invoke-RestMethod http://127.0.0.1:8769/api/v1/events?limit=10 -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
 Invoke-RestMethod http://127.0.0.1:8769/api/v1/monitoring/coverage -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
+Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/monitoring/gaps' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
+Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/events?limit=20&channel=System&sourceEventId=6005' -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
 ```
 
-Environment: `SYSWITNESS_PORT` changes the local port; `SYSWITNESS_DATA_DIRECTORY` overrides default database folder (`%LOCALAPPDATA%\\SysWitness\\data`). This is a prototype, not a full audit or security product. **Missing events are possible** because the source currently samples the most recent 64 entries every 15 seconds rather than replaying a persistent native bookmark. There is no automatic retention, scope-based multi-client authorization, or MCP server yet.
+Environment: `SYSWITNESS_PORT` changes the local port; `SYSWITNESS_DATA_DIRECTORY` overrides the default database folder (`data/` beside the executable), making the development prototype directory-portable when that directory is writable. Avoid putting sensitive database files into source control or read-only installed locations. This is **not** a full audit or security product. The initial 256-event historical backfill is bounded; if older System records exist, the API records a visible `initial_history_outside_backfill_window` coverage gap. Native bookmarks reduce repeat/missed-event risk on restart, but cleared/rotated logs, provider losses, interruptions, and other circumstances can still cause missing records. Collection uses a 5-second polling interval; retention controls, per-client scopes, and MCP remain unimplemented. The API only accepts requests to localhost/127.0.0.1 and validates the HTTP Host header.
 
 ## Development and confidentiality
 Do not commit real Windows Event Logs, SQLite databases, machine identifiers, credentials, API tokens, system traces or other private host data. Keep runtime data outside the source tree or in ignored folders.
