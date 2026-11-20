@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SysWitness.Contracts\SysWitness.Contracts.csproj" />
+    <ProjectReference Include="..\SysWitness.Core\SysWitness.Core.csproj" />
+    <ProjectReference Include="..\SysWitness.Storage\SysWitness.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

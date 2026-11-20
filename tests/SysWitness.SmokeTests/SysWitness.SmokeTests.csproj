@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SysWitness.Contracts\SysWitness.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\SysWitness.Core\SysWitness.Core.csproj" />
+    <ProjectReference Include="..\..\src\SysWitness.Storage\SysWitness.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

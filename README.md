@@ -4,7 +4,7 @@
 
 SysWitness เป็นโปรเจกต์สำรวจและบันทึกเหตุการณ์ของคอมพิวเตอร์อย่างละเอียด ทั้งระบบ เครือข่าย โปรเซส บัญชีผู้ใช้ ไฟล์ Registry และความปลอดภัย โดยมี API กลางให้โปรแกรมอื่นรวมถึง AI Local และ MCP Client **อ่าน ค้นหา และวิเคราะห์ข้อมูลได้เท่านั้น**
 
-> **Status:** Initial architecture + first implementation phase. The published roadmap describes planned features and must not be mistaken for implemented capabilities.
+> **Status:** Early M1 prototype. Reads the latest Windows **System** channel records by polling and stores them in local SQLite. Authenticated read-only localhost API is operational; polling can miss events. The roadmap describes many unimplemented features.
 
 ## Non-negotiable boundaries
 - **Observation only:** no firewall blocking, process termination, file quarantine, registry protection, remote shell, or system enforcement.
@@ -37,9 +37,35 @@ Windows Event Log | Sysmon | ETW | WFP | NTFS USN | device sources
 - [Privacy and threat model](docs/SECURITY.md)
 - [Milestones and acceptance criteria](docs/ROADMAP.md)
 - [Architecture decision: observation-only](docs/decisions/0001-observation-only.md)
+- [Third-party dependency notices](docs/THIRD_PARTY_NOTICES.md)
 
 ## Proposed technology
 C#/.NET 10, ASP.NET Core Minimal API, SQLite in MVP, Windows Event Log as initial provider. Future integrations are modular and opt-in. Elevated Windows audit configuration is a distinct local setup operation, **not** a remote API feature.
+
+## Quick start (development only)
+
+Requires Windows with .NET 10 SDK. Run from PowerShell:
+
+```powershell
+dotnet build SysWitness.sln
+dotnet run --project tests/SysWitness.SmokeTests
+powershell -ExecutionPolicy Bypass -File tests/Run-ApiSmoke.ps1
+$bytes = New-Object byte[] 32
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+$env:SYSWITNESS_API_TOKEN = -join ($bytes | ForEach-Object { $_.ToString('x2') })
+dotnet run --project src/SysWitness.Api
+```
+
+In a separate terminal, use the same secret as `X-SysWitness-Token` (never share it or commit it):
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8769/api/v1/health
+Invoke-RestMethod http://127.0.0.1:8769/api/v1/events?limit=10 -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
+Invoke-RestMethod http://127.0.0.1:8769/api/v1/monitoring/coverage -Headers @{ 'X-SysWitness-Token' = '<your-token>' }
+```
+
+Environment: `SYSWITNESS_PORT` changes the local port; `SYSWITNESS_DATA_DIRECTORY` overrides default database folder (`%LOCALAPPDATA%\\SysWitness\\data`). This is a prototype, not a full audit or security product. **Missing events are possible** because the source currently samples the most recent 64 entries every 15 seconds rather than replaying a persistent native bookmark. There is no automatic retention, scope-based multi-client authorization, or MCP server yet.
 
 ## Development and confidentiality
 Do not commit real Windows Event Logs, SQLite databases, machine identifiers, credentials, API tokens, system traces or other private host data. Keep runtime data outside the source tree or in ignored folders.

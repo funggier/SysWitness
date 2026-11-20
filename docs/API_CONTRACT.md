@@ -17,7 +17,7 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /events/stream | Authenticated SSE with cursor and replay | events.stream |
 | GET | /schemas/events | Supported event schemas and field coverage | schema.read |
 
-Examples above are a **target contract**, not a promise of current implementation.
+**Implemented in M1 prototype:** GET /health, GET /monitoring/coverage, GET /events?limit=1..500 and GET /events/{id}. All other endpoints are **planned**, not implemented. M1 uses a single shared 32+-character API token (X-SysWitness-Token), not yet per-client scoped tokens. Raw event XML remains in local SQLite and is not exposed by the initial API.
 
 ## Query rules
 - Structured filters only: utc time range, source, category, process identity, IP/port, event id.
