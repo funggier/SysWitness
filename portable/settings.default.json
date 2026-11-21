@@ -1,6 +1,7 @@
 {
   "port": 8769,
   "eventChannels": "System,Application",
+  "processMode": "auto",
   "dataDirectory": "data",
   "storageSoftLimitMB": 4096,
   "minFreeDiskMB": 1024,

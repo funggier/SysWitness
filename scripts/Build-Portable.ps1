@@ -42,6 +42,25 @@ try {
         Copy-Item -LiteralPath $upstream -Destination (Join-Path $stage $licenseFile.dst) -ErrorAction Stop
     }
 
+    # Copy notice files from the WMI packages resolved by this publish.
+    $assetsPath = Join-Path (Split-Path -Parent $proj) 'obj\project.assets.json'
+    $assets = Get-Content -LiteralPath $assetsPath -Raw | ConvertFrom-Json
+    foreach ($package in @('System.Management', 'System.CodeDom')) {
+        $library = $assets.libraries.PSObject.Properties |
+            Where-Object { $_.Name.Split('/')[0] -eq $package } | Select-Object -First 1
+        if (-not $library) { throw ('Missing published dependency in assets: ' + $package) }
+        $notice = $null
+        foreach ($folder in $assets.packageFolders.PSObject.Properties.Name) {
+            $candidate = Join-Path (Join-Path $folder $library.Value.path) 'THIRD-PARTY-NOTICES.TXT'
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $notice = $candidate
+                break
+            }
+        }
+        if (-not $notice) { throw ('Missing upstream package notice: ' + $package) }
+        Copy-Item -LiteralPath $notice -Destination (Join-Path $stage ($package + '-THIRD-PARTY-NOTICES.txt'))
+    }
+
     # Check package staging cannot contain a user's runtime database/token.
     foreach ($privateName in @('config', 'data', 'logs', 'runtime',
         'owner-token.txt', 'client-keys.json', 'settings.json')) {

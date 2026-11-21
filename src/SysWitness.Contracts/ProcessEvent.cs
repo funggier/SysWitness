@@ -1,6 +1,6 @@
 namespace SysWitness.Contracts;
 
-/// <summary>Process lifecycle fields reported by a single Windows Event Log record.</summary>
+/// <summary>Process lifecycle fields projected from one stored source observation.</summary>
 public sealed record ProcessEvent(
     string EventId,
     DateTimeOffset OccurredAtUtc,
@@ -13,7 +13,12 @@ public sealed record ProcessEvent(
     string? ImagePath,
     string? CommandLine,
     ProcessEventParent? Parent,
-    uint? ExitStatus);
+    uint? ExitStatus,
+    string ObservationMethod = "eventLog",
+    string Quality = "observed",
+    string? ProcessName = null,
+    DateTimeOffset? ProcessStartedAtUtc = null,
+    string? LocalProcessInstanceId = null);
 
 public sealed record ProcessEventSource(string Channel, string Provider,
     int SourceEventId, long? SourceRecordId, string? Computer);

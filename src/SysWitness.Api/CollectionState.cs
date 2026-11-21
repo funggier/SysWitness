@@ -42,10 +42,13 @@ public sealed class CollectionState
     private readonly Dictionary<string, ChannelState> _sources;
     private readonly string[] _orderedChannels;
 
-    public CollectionState(IReadOnlyList<string> channels)
+    private ProcessCollectorCoverage _processCollector;
+
+    public CollectionState(IReadOnlyList<string> channels, ProcessCollectionMode processMode)
     {
         if (channels.Count == 0)
             throw new ArgumentException("At least one collector channel must be configured.", nameof(channels));
+        _processCollector = ProcessCollectorCoverage.Initial(processMode);
         _orderedChannels = channels.ToArray();
         _sources = new Dictionary<string, ChannelState>(StringComparer.OrdinalIgnoreCase);
         foreach (var channel in channels)
@@ -91,6 +94,12 @@ public sealed class CollectionState
         }
     }
 
+    internal void SetProcessCollector(ProcessCollectorCoverage coverage)
+    {
+        lock (_sync)
+            _processCollector = coverage;
+    }
+
     public object Snapshot()
     {
         lock (_sync)
@@ -120,6 +129,7 @@ public sealed class CollectionState
                 degradedCollectors = channels.Where(c => c.Status == "degraded")
                     .Select(c => "windows-eventlog:" + c.Channel).ToArray(),
                 channels,
+                processCollector = _processCollector,
                 plannedCollectors = new[] { "ETW", "WFP", "NTFS", "Registry", "Devices" }
             };
         }

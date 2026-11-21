@@ -12,6 +12,7 @@ $env:SYSWITNESS_API_TOKEN = $token
 $env:SYSWITNESS_PORT = [string]$port
 $env:SYSWITNESS_DATA_DIRECTORY = $testDir
 $env:SYSWITNESS_EVENT_CHANNELS = 'System,Application'
+$env:SYSWITNESS_PROCESS_MODE = 'off'
 
 # Separate read-only clients; only token hashes are stored in this temporary file.
 $eventsClientToken = 'event-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
@@ -127,6 +128,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Process fixture setup failed' }
 
     $coverage = Start-TestApi
+    if ($coverage.processCollector.status -ne 'disabled') { throw 'Process collector should be disabled in the Event Log test.' }
     $processPath = '/api/v1/processes/events'
     $timelinePath = '/api/v1/processes/11111111-2222-4333-8444-555555555555/timeline'
     Expect-Status $processPath 'GET' 401 $false
@@ -294,5 +296,6 @@ finally {
     Remove-Item Env:SYSWITNESS_CLIENT_KEYS_FILE -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_DATA_DIRECTORY -ErrorAction SilentlyContinue
     Remove-Item Env:SYSWITNESS_EVENT_CHANNELS -ErrorAction SilentlyContinue
+    Remove-Item Env:SYSWITNESS_PROCESS_MODE -ErrorAction SilentlyContinue
     Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
 }

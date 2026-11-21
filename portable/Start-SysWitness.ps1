@@ -102,6 +102,9 @@ $port = [int]$settings.port
 if ($port -lt 1 -or $port -gt 65535) { throw 'port must be 1..65535.' }
 $env:SYSWITNESS_PORT = [string]$port
 $env:SYSWITNESS_EVENT_CHANNELS = [string]$settings.eventChannels
+if ($settings.PSObject.Properties.Name -contains 'processMode') {
+    $env:SYSWITNESS_PROCESS_MODE = [string]$settings.processMode
+}
 $env:SYSWITNESS_STORAGE_SOFT_LIMIT_MB = [string]$settings.storageSoftLimitMB
 $env:SYSWITNESS_MIN_FREE_DISK_MB = [string]$settings.minFreeDiskMB
 if ($null -eq $settings.retentionDays) {

@@ -16,6 +16,7 @@ $appB = Join-Path $phaseB 'Renamed System Witness'
 $port = Get-Random -Minimum 30000 -Maximum 45000
 $baseUrl = 'http://127.0.0.1:' + $port
 $script:launcher = $null
+$originalProcessMode = [Environment]::GetEnvironmentVariable('SYSWITNESS_PROCESS_MODE')
 
 function Stop-PortableProcess {
     if ($script:launcher) {
@@ -56,6 +57,7 @@ function Start-PortableProcess([string]$app, [int]$runIndex) {
 
 New-Item -ItemType Directory -Path $phaseA -Force | Out-Null
 try {
+    [Environment]::SetEnvironmentVariable('SYSWITNESS_PROCESS_MODE', $null)
     Expand-Archive -LiteralPath $zip -DestinationPath $phaseA
     if (-not (Test-Path (Join-Path $appA 'SysWitness.Api.exe'))) {
         throw 'Portable ZIP missing executable.'
@@ -69,6 +71,7 @@ try {
     $settingsPath = Join-Path $appA 'config\settings.json'
     $settings = Get-Content (Join-Path $appA 'settings.default.json') -Raw | ConvertFrom-Json
     $settings.port = $port
+    $settings.PSObject.Properties.Remove('processMode') # Exercise a configuration written by the previous version.
     $settings | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $settingsPath -Encoding UTF8
 
     Start-PortableProcess $appA 1
@@ -84,6 +87,7 @@ try {
     if ($eventsBefore.returned -lt 1 -or $coverageBefore.status -notin @('collecting','degraded')) {
         throw 'First run did not collect queryable Windows events.'
     }
+    if ($coverageBefore.processCollector.mode -ne 'auto') { throw 'Existing settings must default to auto.' }
     if (-not (Test-Path (Join-Path $appA 'data\events.sqlite'))) {
         throw 'Portable data not created under the application folder.'
     }
@@ -92,6 +96,9 @@ try {
     New-Item -ItemType Directory -Path $phaseB -Force | Out-Null
     Move-Item -LiteralPath $appA -Destination $appB -ErrorAction Stop
 
+    $movedSettings = Join-Path $appB 'config\settings.json'
+    $settings | Add-Member -NotePropertyName processMode -NotePropertyValue 'snapshot'
+    $settings | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $movedSettings -Encoding UTF8
     Start-PortableProcess $appB 2
     $tokenAfter = (Get-Content -LiteralPath (Join-Path $appB 'config\owner-token.txt') -Raw).Trim()
     if ($tokenAfter -ne $tokenBefore) { throw 'Portable owner token changed after relocation.' }
@@ -102,6 +109,7 @@ try {
         throw 'An event stored before relocation disappeared from the moved SQLite DB.'
     }
     $coverageAfter = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
+    if ($coverageAfter.processCollector.mode -ne 'snapshot') { throw 'Moved portable settings did not select snapshot mode.' }
     foreach ($before in $coverageBefore.channels) {
         $after = @($coverageAfter.channels | Where-Object channel -eq $before.channel)
         if ($after.Count -ne 1 -or $after[0].lastRecordId -lt $before.lastRecordId) {
@@ -111,6 +119,7 @@ try {
     Write-Output ('PASS: self-contained ZIP, first-run token, SQLite, bookmarked events and API continue after folder relocation; port=' + $port)
 } finally {
     Stop-PortableProcess
+    [Environment]::SetEnvironmentVariable('SYSWITNESS_PROCESS_MODE', $originalProcessMode)
     try { Remove-Item -LiteralPath $temporary -Force -Recurse -ErrorAction Stop }
     catch {
         Write-Warning ('Portable relocation test cleanup incomplete: ' + $temporary)

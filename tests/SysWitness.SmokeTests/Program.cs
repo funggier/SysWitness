@@ -39,6 +39,7 @@ var path = Path.Combine(temp, "events.sqlite");
 try
 {
     await ProcessMonitoringSmoke.VerifyAsync(Path.Combine(temp, "process.sqlite"));
+    await LocalProcessCollectionSmoke.VerifyAsync(Path.Combine(temp, "local-process.sqlite"));
     // Client registry contains SHA-256 hashes only, no raw credentials.
     var clientFile = Path.Combine(temp, "clients.json");
     var eventToken = new string('e', 64);

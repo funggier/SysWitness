@@ -26,7 +26,9 @@ public sealed partial class SqliteEventStore
         var source = processGuid is null
             ? """
                 ((channel=$sysmon AND provider=$sysmon_provider AND source_event_id IN (1,5))
-                  OR (channel=$security AND provider=$security_provider AND source_event_id IN (4688,4689)))
+                  OR (channel=$security AND provider=$security_provider AND source_event_id IN (4688,4689))
+                  OR (channel=$snapshot AND provider=$snapshot_provider AND source_event_id IN (1,2))
+                  OR (channel=$wmi AND provider=$wmi_provider AND source_event_id IN (1,2)))
                 """
             : """
                 (channel=$sysmon AND provider=$sysmon_provider AND source_event_id IN (1,5)
@@ -55,6 +57,10 @@ public sealed partial class SqliteEventStore
         {
             cmd.Parameters.AddWithValue("$security", WindowsProcessEventDecoder.SecurityChannel);
             cmd.Parameters.AddWithValue("$security_provider", WindowsProcessEventDecoder.SecurityProvider);
+            cmd.Parameters.AddWithValue("$snapshot", LocalProcessEvidence.SnapshotChannel);
+            cmd.Parameters.AddWithValue("$snapshot_provider", LocalProcessEvidence.SnapshotProvider);
+            cmd.Parameters.AddWithValue("$wmi", LocalProcessEvidence.WmiChannel);
+            cmd.Parameters.AddWithValue("$wmi_provider", LocalProcessEvidence.WmiProvider);
         }
         BindEventFilters(cmd, query, position);
 
@@ -69,7 +75,7 @@ public sealed partial class SqliteEventStore
                 reader.IsDBNull(7) ? null : reader.GetInt64(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8), reader.GetString(9));
             // The SQL source predicate selects exactly the records supported by the decoder.
-            items.Add(WindowsProcessEventDecoder.Decode(evidence)!);
+            items.Add((WindowsProcessEventDecoder.Decode(evidence) ?? LocalProcessEvidence.Decode(evidence))!);
         }
 
         var hasNext = items.Count > query.Limit;

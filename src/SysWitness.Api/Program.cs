@@ -17,6 +17,8 @@ if (!string.IsNullOrWhiteSpace(portText) &&
 var configuredChannels = WindowsEventLogChannels.ParseEnabled(
     Environment.GetEnvironmentVariable("SYSWITNESS_EVENT_CHANNELS"));
 
+var processMode = ProcessCollectorCoverage.ParseMode(
+    Environment.GetEnvironmentVariable("SYSWITNESS_PROCESS_MODE"));
 var storagePolicy = StoragePolicy.FromEnvironment();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,7 +28,13 @@ if (string.IsNullOrWhiteSpace(dataDirectory))
     dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
 builder.Services.AddSingleton(new SqliteEventStore(
     Path.Combine(dataDirectory, "events.sqlite"), storagePolicy));
-builder.Services.AddSingleton(new CollectionState(configuredChannels));
+builder.Services.AddSingleton(new CollectionState(configuredChannels, processMode));
+if (processMode != ProcessCollectionMode.Off)
+{
+    builder.Services.AddHostedService(sp => new WindowsProcessCollectionService(processMode,
+        sp.GetRequiredService<SqliteEventStore>(), sp.GetRequiredService<CollectionState>(),
+        sp.GetRequiredService<ILogger<WindowsProcessCollectionService>>()));
+}
 builder.Services.AddHostedService<StorageMaintenanceService>();
 foreach (var channel in configuredChannels)
 {

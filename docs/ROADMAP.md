@@ -35,6 +35,7 @@
 
 ## M3 — Deep telemetry
 - [x] Decode process start/exit, parent fields and source provenance from Sysmon and Windows Security; expose the process feed and per-GUID Sysmon timeline
+- [x] Collect live process changes through WMI where permitted, with an automatic Windows snapshot fallback and coverage reporting
 - [ ] Verify against live Sysmon and Security lifecycle events on a Windows account with accessible sources
 - [ ] Decode Windows/Sysmon network and DNS records with source-aware process attribution
 - [ ] ETW/WFP/network collectors with measured impact and loss reporting
