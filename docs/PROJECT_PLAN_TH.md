@@ -1,6 +1,6 @@
 # SysWitness — แผนโครงการหลัก (2026-11-20)
 
-> **สถานะล่าสุด:** มี Collector ของ Windows Event Log ที่แยก `System` และ `Application` ทำงานอิสระแล้ว โดยใช้ Bookmark และฐานข้อมูล SQLite ร่วมกันแต่จำตำแหน่งแยกตาม Channel; `Security` และ `Microsoft-Windows-Sysmon/Operational` เป็นตัวเลือกเสริมที่ต้องมีแหล่งข้อมูลและสิทธิ์อ่านก่อน ถ้าอ่านไม่ได้ ระบบจะแสดง `degraded` เป็นราย Channel โดยไม่หยุดตัวอื่น API ยังคงเป็น Read-only เท่านั้น ดูผลทดสอบและงานที่เหลือได้ใน [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md).
+> **สถานะล่าสุด:** มี Collector ของ Windows Event Log ที่แยก `System` และ `Application` ทำงานอิสระแล้ว โดยใช้ Bookmark และฐานข้อมูล SQLite ร่วมกันแต่จำตำแหน่งแยกตาม Channel; `Security` และ `Microsoft-Windows-Sysmon/Operational` เป็นตัวเลือกเสริมที่ต้องมีแหล่งข้อมูลและสิทธิ์อ่านก่อน ถ้าอ่านไม่ได้ ระบบจะแสดง `degraded` เป็นราย Channel โดยไม่หยุดตัวอื่น API ยังคงเป็น Read-only เท่านั้น ระบบอ่านเหตุการณ์เริ่มและจบโปรเซสจาก Sysmon และ Windows Security ที่เก็บไว้ได้แล้ว พร้อมไทม์ไลน์ Sysmon ตาม Process GUID ผ่าน API ที่ต้องใช้สิทธิ์ `processes.read` ดูผลทดสอบและงานที่เหลือได้ใน [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md).
 
 ## 1. วัตถุประสงค์
 สร้างแพลตฟอร์ม **Deep System Observability** ที่ติดตามกิจกรรมของคอมพิวเตอร์อย่างละเอียดมาก เริ่มจาก Windows และเปิด **Central Read-only API** ให้ Dashboard, MCP, AI Local, SDK, และโปรแกรมภายนอกเรียกใช้ข้อมูลได้โดยไม่ขึ้นกับซอฟต์แวร์ AI ยี่ห้อใด

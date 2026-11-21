@@ -77,6 +77,8 @@ try {
     $tokenBefore = (Get-Content -LiteralPath $tokenPathA -Raw).Trim()
     if ($tokenBefore.Length -ne 64) { throw 'Portable owner token must be 32-byte random hex.' }
     $headers = @{ 'X-SysWitness-Token' = $tokenBefore }
+    $processesBefore = Invoke-RestMethod ($baseUrl + '/api/v1/processes/events?limit=1') -Headers $headers -TimeoutSec 4
+    if ($processesBefore.limit -ne 1) { throw 'New portable owner cannot read process events.' }
     $eventsBefore = Invoke-RestMethod ($baseUrl + '/api/v1/events?limit=3') -Headers $headers -TimeoutSec 4
     $coverageBefore = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
     if ($eventsBefore.returned -lt 1 -or $coverageBefore.status -notin @('collecting','degraded')) {
@@ -93,6 +95,8 @@ try {
     Start-PortableProcess $appB 2
     $tokenAfter = (Get-Content -LiteralPath (Join-Path $appB 'config\owner-token.txt') -Raw).Trim()
     if ($tokenAfter -ne $tokenBefore) { throw 'Portable owner token changed after relocation.' }
+    $processesAfter = Invoke-RestMethod ($baseUrl + '/api/v1/processes/events?limit=1') -Headers $headers -TimeoutSec 4
+    if ($processesAfter.limit -ne 1) { throw 'Relocated owner cannot read process events.' }
     $byId = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $idBefore) -Headers $headers -TimeoutSec 4
     if ($byId.eventId -ne $idBefore) {
         throw 'An event stored before relocation disappeared from the moved SQLite DB.'

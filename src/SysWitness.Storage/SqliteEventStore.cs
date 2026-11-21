@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using SysWitness.Contracts;
+using SysWitness.Core;
 
 namespace SysWitness.Storage;
 
@@ -310,23 +311,7 @@ public sealed partial class SqliteEventStore
 
     public async Task<EventPage> GetPageAsync(EventQuery query, CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(query);
-        if (query.Limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(query.Limit));
-        if (query.Channel is not null && (query.Channel.Length is < 1 or > 64 ||
-            !query.Channel.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')))
-            throw new ArgumentException("Invalid channel name.", nameof(query.Channel));
-        if (query.Provider is not null && (query.Provider.Length is < 1 or > 256 ||
-            query.Provider.Any(char.IsControl)))
-            throw new ArgumentException("Invalid provider.", nameof(query.Provider));
-        if (query.Category is not null && (query.Category.Length is < 1 or > 128 ||
-            query.Category.Any(char.IsControl)))
-            throw new ArgumentException("Invalid category.", nameof(query.Category));
-        if (query.SourceEventId is < 0 or > 65535)
-            throw new ArgumentException("Invalid source event ID.", nameof(query.SourceEventId));
-        if (query.FromUtc is not null && query.ToUtc is not null &&
-            query.FromUtc >= query.ToUtc)
-            throw new ArgumentException("fromUtc must precede toUtc.");
+        ValidateEventQuery(query);
 
         var position = DecodeCursor(query.Cursor);
         await using var db = await OpenAsync(ct);
@@ -346,15 +331,8 @@ public sealed partial class SqliteEventStore
             ORDER BY occurred_at_utc DESC, event_id DESC
             LIMIT $limit;
             """;
-        cmd.Parameters.AddWithValue("$channel", (object?)query.Channel ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$category", (object?)query.Category ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$provider", (object?)query.Provider ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$source_event_id", (object?)query.SourceEventId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$from_utc", (object?)query.FromUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$to_utc", (object?)query.ToUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$time", (object?)position?.Time ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$id", (object?)position?.Id ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$limit", query.Limit + 1);
+        BindEventFilters(cmd, query, position);
         var list = new List<EventSummary>();
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
@@ -365,7 +343,7 @@ public sealed partial class SqliteEventStore
 
         var hasNext = list.Count > query.Limit;
         if (hasNext) list.RemoveAt(list.Count - 1);
-        var next = hasNext ? EncodeCursor(list[^1]) : null;
+        var next = hasNext ? EncodeCursor(list[^1].OccurredAtUtc, list[^1].EventId) : null;
         return new EventPage(list, query.Limit, list.Count, next);
     }
 
@@ -388,6 +366,41 @@ public sealed partial class SqliteEventStore
             reader.GetInt32(5), reader.IsDBNull(6) ? null : reader.GetInt64(6));
     }
 
+    private static void ValidateEventQuery(EventQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.Limit is < 1 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(query.Limit));
+        if (query.Channel is not null && query.Channel != WindowsProcessEventDecoder.SysmonChannel &&
+            (query.Channel.Length is < 1 or > 64 ||
+             !query.Channel.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')))
+            throw new ArgumentException("Invalid channel name.", nameof(query.Channel));
+        if (query.Provider is not null && (query.Provider.Length is < 1 or > 256 ||
+            query.Provider.Any(char.IsControl)))
+            throw new ArgumentException("Invalid provider.", nameof(query.Provider));
+        if (query.Category is not null && (query.Category.Length is < 1 or > 128 ||
+            query.Category.Any(char.IsControl)))
+            throw new ArgumentException("Invalid category.", nameof(query.Category));
+        if (query.SourceEventId is < 0 or > 65535)
+            throw new ArgumentException("Invalid source event ID.", nameof(query.SourceEventId));
+        if (query.FromUtc is not null && query.ToUtc is not null &&
+            query.FromUtc >= query.ToUtc)
+            throw new ArgumentException("fromUtc must precede toUtc.");
+    }
+
+    private static void BindEventFilters(SqliteCommand cmd, EventQuery query,
+        (string Time, string Id)? position)
+    {
+        cmd.Parameters.AddWithValue("$channel", (object?)query.Channel ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$provider", (object?)query.Provider ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$source_event_id", (object?)query.SourceEventId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$from_utc", (object?)query.FromUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$to_utc", (object?)query.ToUtc?.ToUniversalTime().ToString("O") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$time", (object?)position?.Time ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$id", (object?)position?.Id ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$limit", query.Limit + 1);
+    }
+
     private async Task<SqliteConnection> OpenAsync(CancellationToken ct)
     {
         var db = new SqliteConnection(_connectionString);
@@ -398,9 +411,9 @@ public sealed partial class SqliteEventStore
     private static bool IsValidEventId(string? id)
         => id is { Length: 64 } && id.All(Uri.IsHexDigit);
 
-    private static string EncodeCursor(EventSummary summary) =>
+    private static string EncodeCursor(DateTimeOffset occurredAtUtc, string eventId) =>
         Convert.ToBase64String(Encoding.UTF8.GetBytes(
-            summary.OccurredAtUtc.ToUniversalTime().ToString("O") + "|" + summary.EventId));
+            occurredAtUtc.ToUniversalTime().ToString("O") + "|" + eventId));
 
     private static (string Time, string Id)? DecodeCursor(string? cursor)
     {

@@ -12,13 +12,15 @@ internal static class EventQueryParser
         "limit", "cursor", "channel", "category", "provider", "sourceEventId", "fromUtc", "toUtc"
     };
 
-    public static bool TryParse(HttpRequest request, out EventQuery? query, out string error)
+    public static bool TryParse(HttpRequest request, out EventQuery? query, out string error,
+        bool processOnly = false)
     {
         query = null;
         error = "";
         foreach (var field in request.Query)
         {
-            if (!AllowedKeys.Contains(field.Key) || field.Value.Count != 1)
+            if (!AllowedKeys.Contains(field.Key) || field.Value.Count != 1 ||
+                (processOnly && field.Key.Equals("category", StringComparison.OrdinalIgnoreCase)))
             {
                 error = "Unsupported or repeated query parameter.";
                 return false;

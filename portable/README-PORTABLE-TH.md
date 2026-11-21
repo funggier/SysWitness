@@ -10,6 +10,8 @@
 5. หยุดโปรแกรมด้วย Ctrl+C ก่อนย้ายโฟลเดอร์หรือสำรองฐานข้อมูล
 
 ## ย้ายไดรฟ์/เปลี่ยนชื่อโฟลเดอร์
+หากต้องการอ่านเหตุการณ์โปรเซส ให้เพิ่ม `Security` หรือ `Microsoft-Windows-Sysmon/Operational` ใน `eventChannels` ของ `config/settings.json` ตามช่องที่เครื่องและบัญชีเข้าถึงได้ แล้วเปิดโปรแกรมใหม่ สิทธิ์ `processes.read` มีให้กับ Owner Token ที่สร้างใหม่ หากใช้ไฟล์ `config/client-keys.json` จากรุ่นก่อน ให้เพิ่มสิทธิ์นี้ในรายการ `scopes` ของ Client ที่ต้องการใช้
+
 หลังจากปิดโปรแกรม สามารถย้าย **โฟลเดอร์ทั้งหมด** ได้ทันทีโดยไม่มี Path ถาวรใน Config เริ่มต้น เช่น `T:\Apps\SysWitness` -> `D:\Tools\SysWitness`. เปิด `Start-SysWitness.cmd` ในตำแหน่งใหม่และใช้ Token, SQLite, Bookmarks เดิมได้
 
 ## ที่เก็บไฟล์

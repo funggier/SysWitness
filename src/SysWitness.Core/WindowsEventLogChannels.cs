@@ -10,8 +10,8 @@ public static class WindowsEventLogChannels
     {
         ["System"] = "System",
         ["Application"] = "Application",
-        ["Security"] = "Security",
-        ["Microsoft-Windows-Sysmon/Operational"] = "Microsoft-Windows-Sysmon/Operational"
+        [WindowsProcessEventDecoder.SecurityChannel] = WindowsProcessEventDecoder.SecurityChannel,
+        [WindowsProcessEventDecoder.SysmonChannel] = WindowsProcessEventDecoder.SysmonChannel
     };
 
     public static IReadOnlyList<string> DefaultChannels { get; } = ["System", "Application"];

@@ -34,13 +34,15 @@
 - [ ] Per-channel scopes, redaction, rotation without restart, detailed read audit and misuse tests
 
 ## M3 — Deep telemetry
-- [ ] Parse Sysmon events into structured process/network identity (opt-in Sysmon Event Log *reading* is supported but not decoded/correlated)
+- [x] Decode process start/exit, parent fields and source provenance from Sysmon and Windows Security; expose the process feed and per-GUID Sysmon timeline
+- [ ] Verify against live Sysmon and Security lifecycle events on a Windows account with accessible sources
+- [ ] Decode Windows/Sysmon network and DNS records with source-aware process attribution
 - [ ] ETW/WFP/network collectors with measured impact and loss reporting
 - [ ] File/Registry/service/device source adapters with explicit coverage limitations
 - [ ] Workload performance and disk impact benchmarks
 
 ## M4 — Analytics
-- [ ] Process tree/correlation graph, timelines, explanation/provenance links
+- [ ] Process tree/correlation graph, cross-source timelines and explanation/provenance links
 - [ ] Deterministic rule engine and optional AI-assisted investigation as client
 - [ ] Source-visible evidence exports; acceptance tests for inference vs fact
 

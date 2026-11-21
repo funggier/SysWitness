@@ -36,13 +36,17 @@ Initial MVP hosts independently configured System/Application Event Log collecto
 - A degraded optional source does not make successful collection from System/Application invalid, but the aggregate health response correctly reports `degraded`.
 - The API has no channel-enabling or OS audit setup endpoints.
 
+## Process monitoring
+
+`WindowsProcessEventDecoder` maps Sysmon and Security lifecycle records to the process API contract. SQLite reads candidate evidence by channel, provider and event ID. GUID timelines select the actual Sysmon subject GUID from its named XML field before paging. Process details are decoded on read, so previously stored raw records work without a database migration or a collector restart to replay them. Retention applies to the evidence behind both API views.
+
 ## Local storage maintenance boundary
 
 The optional `StorageMaintenanceService` runs only when `SYSWITNESS_RETENTION_DAYS` is configured locally. It deletes old normalized/raw evidence copies in bounded SQLite batches and records aggregate deletion history in the same transaction. The default is no automatic deletion. Storage is governed by a conservative approximate soft limit **and** minimum available free bytes on the database volume. If a batch would exceed the estimated budget, leave less than the configured disk reserve, or if free space cannot be checked, collectors pause and **do not** advance native bookmarks. An HTTP client, MCP or AI cannot change these rules or invoke deletion. The API offers only read-only `/storage/status` and `/storage/retention` endpoints. Full disk-quota enforcement and compaction remain out of scope for this step.
 
 ## Local read-client security boundary
 
-`SysWitness.Security` independently validates a locally provided JSON list of client IDs, SHA-256 token hashes, and `events.read`/`coverage.read`/`storage.read` scopes. Neither raw Client tokens nor permission updates are accepted through the Data API. The legacy global Token remains as an optional all-read-scopes credential for backward compatibility. The registry is loaded once at startup; changes require restart. See [API_CLIENTS_TH.md](API_CLIENTS_TH.md).
+`SysWitness.Security` independently validates a locally provided JSON list of client IDs, SHA-256 token hashes, and explicit read scopes such as `events.read` and `processes.read`. Neither raw Client tokens nor permission updates are accepted through the Data API. The legacy global Token remains with its original event summary, coverage and storage scopes. The registry is loaded once at startup; changes require restart. See [API_CLIENTS_TH.md](API_CLIENTS_TH.md).
 
 ## Portable and relocatable application layout
 

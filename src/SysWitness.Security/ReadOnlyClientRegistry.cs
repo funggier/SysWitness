@@ -14,7 +14,8 @@ public sealed class ReadOnlyClientRegistry
     public const string EventsRead = "events.read";
     public const string CoverageRead = "coverage.read";
     public const string StorageRead = "storage.read";
-    private static readonly HashSet<string> ValidScopes = [EventsRead, CoverageRead, StorageRead];
+    public const string ProcessesRead = "processes.read";
+    private static readonly HashSet<string> ValidScopes = [EventsRead, CoverageRead, StorageRead, ProcessesRead];
     private static readonly Regex IdFormat = new(@"\A[a-zA-Z0-9._-]{1,64}\z", RegexOptions.Compiled);
     private readonly IReadOnlyList<ClientEntry> _entries;
 
@@ -36,7 +37,7 @@ public sealed class ReadOnlyClientRegistry
                 throw new ArgumentException("SYSWITNESS_API_TOKEN must be at least 32 characters.");
             clients.Add(new ClientEntry("local-default",
                 SHA256.HashData(Encoding.UTF8.GetBytes(legacyToken)),
-                new HashSet<string>(ValidScopes, StringComparer.Ordinal)));
+                new HashSet<string>([EventsRead, CoverageRead, StorageRead], StringComparer.Ordinal)));
         }
 
         if (!string.IsNullOrWhiteSpace(clientFile))
@@ -141,6 +142,10 @@ public sealed class ReadOnlyClientRegistry
             Regex.IsMatch(path, @"\A/api/v1/events/[a-fA-F0-9]{64}\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return EventsRead;
+        if (path == "/api/v1/processes/events" ||
+            Regex.IsMatch(path, @"\A/api/v1/processes/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/timeline\z",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return ProcessesRead;
         if (path == "/api/v1/monitoring/coverage" || path == "/api/v1/monitoring/gaps")
             return CoverageRead;
         if (path == "/api/v1/storage/status" || path == "/api/v1/storage/retention")

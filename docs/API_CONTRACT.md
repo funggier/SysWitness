@@ -15,12 +15,13 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /events/{id} | One normalized event | events.read |
 | POST | /events/query | Complex *read-only* filter, not arbitrary SQL | events.read |
 | GET | /evidence/{id} | Raw evidence if authorized | evidence.read |
-| GET | /processes/{id}/timeline | Correlated process timeline | analysis.read |
+| GET | /processes/events | Source-backed process start/exit events | processes.read |
+| GET | /processes/{processGuid}/timeline | Sysmon events for a single subject Process GUID | processes.read |
 | GET | /network/connections | Source-backed observed connections | network.read |
 | GET | /events/stream | Authenticated SSE with cursor and replay | events.stream |
 | GET | /schemas/events | Supported event schemas and field coverage | schema.read |
 
-**Implemented in M1/M2 prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc) and GET /events/{id}. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy all-read-scopes token or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
+**Implemented in the current prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc), GET /events/{id}, GET /processes/events and GET /processes/{processGuid}/timeline. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy token for event summaries, coverage and storage or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
 
 ## Local storage policy (no remote configuration)
 - Retention is disabled by default. A *local* environment variable `SYSWITNESS_RETENTION_DAYS` may enable opt-in deletion of aged local event copies with durable summary records. `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` defaults to 4096 MiB and conservatively pauses ingestion on projected storage pressure without advancing bookmarks.
@@ -43,9 +44,19 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 - Version under /api/v1; additive fields backward compatible; breaking changes in /api/v2.
 - OpenAPI contract and integration/authorization tests precede third-party SDK promises.
 
+## Process monitoring
+
+- `GET /processes/events` includes Sysmon process creation (1) and termination (5), and Windows Security audit process creation (4688) and exit (4689). Data comes from the corresponding channels in local SQLite. Source availability and collection gaps are reported through the coverage endpoints. An empty process page means there are no matching retained records.
+- `GET /processes/{processGuid}/timeline` matches the Sysmon **subject** Process GUID. Supply a hyphenated, nonzero GUID such as `11111111-2222-4333-8444-555555555555`. An unknown GUID returns an empty page with HTTP 200. Security events retain their source PID and cannot be matched by this endpoint.
+- Both use the event pagination envelope `items`, `limit`, `returned` and `nextCursor`. Use `channel`, `provider`, `sourceEventId`, `fromUtc`, `toUtc`, `limit` and `cursor` as with the event API. Keep the same filters and GUID when following a cursor. Results are newest first. Narrow timestamp filters reduce work for large histories.
+- Each item includes `eventId`, source and observation times, `kind` (`start` or `exit`), `source` (channel, provider, source event/record ID and computer), `payloadStatus`, PID, GUID, image path, command line, parent and exit status where provided. A field that is absent or unreadable is null. `payloadStatus` is `decoded` when at least one process field is available, or `unavailable` when no field could be decoded.
+- These routes require an explicit `processes.read` scope, which includes access to sensitive command lines. Give it only to clients that need process details. The standard `/events` responses retain their existing summary fields and categories.
+
+See [Sysmon events](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon#events), [Security 4688](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4688) and [Security 4689](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4689).
+
 ## Security model
 - Loopback-only by default; require explicit opt-in & secure transport for remote clients.
-- Authentication on data endpoints (health response minimized); implemented client-key registry (file-based SHA-256 hash list, up to 32 entries) and read scopes `events.read`, `coverage.read`, `storage.read`. The legacy `SYSWITNESS_API_TOKEN` is an optional backward-compatible all-read-scopes credential. All known routes are explicitly scoped, unknown paths fail closed.
+- Authentication on data endpoints (health response minimized); implemented client-key registry (file-based SHA-256 hash list, up to 32 entries) and read scopes `events.read`, `coverage.read`, `storage.read`, and `processes.read`. The legacy `SYSWITNESS_API_TOKEN` keeps its original three scopes. All known routes are explicitly scoped, unknown paths fail closed.
 - Raw evidence API is still unavailable. Future raw evidence access needs independent authorization/redaction before handing data to AI models.
 - Current: loopback binding and Host validation; CORS policy hardening, explicit Origin checks, body-size budgets and rate limiting remain future tasks. No mutation or command endpoint exists.
 - Detailed read-access audit is still planned; do not log credentials or sensitive payloads. Client registry updates currently require restart; rotate/revoke by editing the local file and restarting.

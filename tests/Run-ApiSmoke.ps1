@@ -15,6 +15,7 @@ $env:SYSWITNESS_EVENT_CHANNELS = 'System,Application'
 
 # Separate read-only clients; only token hashes are stored in this temporary file.
 $eventsClientToken = 'event-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+$processClientToken = 'process-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $storageClientToken = 'store-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 function TokenHash([string]$value) {
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -26,6 +27,7 @@ function TokenHash([string]$value) {
 $clientFile = Join-Path $testDir 'client-keys.json'
 @{ clients = @(
     @{ id = 'events-client'; tokenSha256 = (TokenHash $eventsClientToken); scopes = @('events.read') },
+    @{ id = 'process-client'; tokenSha256 = (TokenHash $processClientToken); scopes = @('processes.read') },
     @{ id = 'storage-client'; tokenSha256 = (TokenHash $storageClientToken); scopes = @('storage.read') }
 )} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $clientFile -Encoding UTF8
 $env:SYSWITNESS_CLIENT_KEYS_FILE = $clientFile
@@ -120,7 +122,39 @@ try {
     & dotnet build (Join-Path $repo 'SysWitness.sln') --nologo --verbosity quiet
     if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
+    $fixtureProject = Join-Path $repo 'tests\SysWitness.SmokeTests'
+    & dotnet run --project $fixtureProject --no-build -- --seed-process-fixtures (Join-Path $testDir 'events.sqlite')
+    if ($LASTEXITCODE -ne 0) { throw 'Process fixture setup failed' }
+
     $coverage = Start-TestApi
+    $processPath = '/api/v1/processes/events'
+    $timelinePath = '/api/v1/processes/11111111-2222-4333-8444-555555555555/timeline'
+    Expect-Status $processPath 'GET' 401 $false
+    Expect-Status $processPath 'GET' 403 $true
+    Expect-Status $processPath 'POST' 404 $true
+    Expect-ScopedStatus $eventsClientToken $processPath 403
+    Expect-ScopedStatus $storageClientToken $timelinePath 403
+    Expect-ScopedStatus $processClientToken '/api/v1/events' 403
+    Expect-ScopedStatus $processClientToken ($processPath + '?category=windows.event') 400
+    Expect-ScopedStatus $processClientToken ($timelinePath + '?limit=501') 400
+    Expect-ScopedStatus $processClientToken '/api/v1/processes/78/timeline' 404
+    $processHeaders = @{ 'X-SysWitness-Token' = $processClientToken }
+    $processFeed = Invoke-RestMethod ($baseUrl + $processPath + '?channel=Security') -Headers $processHeaders -TimeoutSec 4
+    if ($processFeed.returned -ne 2 -or $processFeed.items[0].kind -ne 'exit' -or
+        $processFeed.items[1].parent.processId -ne 40 -or $null -ne $processFeed.items[1].processGuid) {
+        throw 'Audit process event projection is incorrect'
+    }
+    $timeline = Invoke-RestMethod ($baseUrl + $timelinePath) -Headers $processHeaders -TimeoutSec 4
+    if ($timeline.returned -ne 2 -or $timeline.items[0].kind -ne 'exit' -or
+        $timeline.items[1].commandLine -ne '"test.exe" a&b' -or
+        $timeline.items[1].source.provider -ne 'Microsoft-Windows-Sysmon' -or
+        ($timeline.items[1].PSObject.Properties.Name -contains 'rawXml')) {
+        throw 'GUID timeline did not return the scoped, source-backed process fields'
+    }
+    $evidence = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $timeline.items[1].eventId) -Headers $headers -TimeoutSec 4
+    if ($evidence.category -ne 'windows.event' -or ($evidence.PSObject.Properties.Name -contains 'commandLine')) {
+        throw 'General event summary must preserve its category and hide command-line data'
+    }
     Expect-Status '/api/v1/events' 'GET' 401 $false
     Expect-ScopedStatus $eventsClientToken '/api/v1/events?limit=1' 200
     Expect-ScopedStatus $eventsClientToken '/api/v1/monitoring/coverage' 403
@@ -251,7 +285,7 @@ try {
         $systemAfterOptional.lastRecordId -lt $firstRecordId) {
         throw 'Optional channel failure disrupted the System collector'
     }
-    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
+    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi

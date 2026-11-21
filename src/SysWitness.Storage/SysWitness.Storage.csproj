@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SysWitness.Contracts\SysWitness.Contracts.csproj" />
+    <ProjectReference Include="..\SysWitness.Core\SysWitness.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

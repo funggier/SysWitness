@@ -74,7 +74,7 @@ if (-not (Test-Path -LiteralPath $clientFile -PathType Leaf)) {
         clients = @(@{
             id = 'portable-owner'
             tokenSha256 = (Get-Sha256 $ownerToken)
-            scopes = @('events.read', 'coverage.read', 'storage.read')
+            scopes = @('events.read', 'coverage.read', 'storage.read', 'processes.read')
         })
     }
     $clientKeys | ConvertTo-Json -Depth 6 |

@@ -12,6 +12,12 @@ static void Require(bool condition, string message)
     if (!condition) throw new Exception("FAIL: " + message);
 }
 
+if (args is ["--seed-process-fixtures", var databasePath])
+{
+    await ProcessMonitoringSmoke.SeedAsync(databasePath);
+    return;
+}
+
 Require(WindowsEventLogChannels.ParseEnabled(null).SequenceEqual(["System", "Application"]),
     "Default channel configuration is System and Application");
 Require(WindowsEventLogChannels.ParseEnabled("System, Application, application").SequenceEqual(
@@ -32,6 +38,7 @@ Directory.CreateDirectory(temp);
 var path = Path.Combine(temp, "events.sqlite");
 try
 {
+    await ProcessMonitoringSmoke.VerifyAsync(Path.Combine(temp, "process.sqlite"));
     // Client registry contains SHA-256 hashes only, no raw credentials.
     var clientFile = Path.Combine(temp, "clients.json");
     var eventToken = new string('e', 64);
@@ -50,7 +57,8 @@ try
     Require(registry.TryAuthenticate(eventToken, out var eventClient) &&
         eventClient!.CanRead(ReadOnlyClientRegistry.EventsRead) &&
         !eventClient.CanRead(ReadOnlyClientRegistry.StorageRead) &&
-        !eventClient.CanRead(ReadOnlyClientRegistry.CoverageRead),
+        !eventClient.CanRead(ReadOnlyClientRegistry.CoverageRead) &&
+        !eventClient.CanRead(ReadOnlyClientRegistry.ProcessesRead),
         "Events-only client cannot access other data categories");
     Require(registry.TryAuthenticate(storageToken, out var storageClient) &&
         storageClient!.CanRead(ReadOnlyClientRegistry.StorageRead) &&
@@ -62,7 +70,8 @@ try
     Require(legacyRegistry.TryAuthenticate(new string('a', 64), out var legacy) &&
         legacy!.CanRead(ReadOnlyClientRegistry.EventsRead) &&
         legacy.CanRead(ReadOnlyClientRegistry.CoverageRead) &&
-        legacy.CanRead(ReadOnlyClientRegistry.StorageRead),
+        legacy.CanRead(ReadOnlyClientRegistry.StorageRead) &&
+        !legacy.CanRead(ReadOnlyClientRegistry.ProcessesRead),
         "Legacy token remains read-only with existing data scopes");
     Require(ReadOnlyClientRegistry.RequiredScope("/api/v1/events") ==
         ReadOnlyClientRegistry.EventsRead &&
@@ -382,7 +391,7 @@ try
     }
 
     Console.WriteLine("PASS: durable bookmarks, independent sources, cursor search, " +
-        "opt-in retention, disk-free guard and scoped read-only client keys");
+        "opt-in retention, disk-free guard, process lifecycle projections and scoped read-only client keys");
 }
 finally
 {

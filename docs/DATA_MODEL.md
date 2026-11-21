@@ -28,6 +28,12 @@ Each event has a stable internal ID and: `schema_version`, `category`, `source.p
 ## Event quality
 `observed` = direct source; `derived` = deterministic transform; `inferred` = analysis hypothesis; `unknown` = missing or unsupported. Distinguish optional fields from false/negative evidence.
 
+## Process event projection
+
+The process API decodes structured fields on read from retained Windows Event Log evidence. This works with previously collected records and shares evidence IDs and retention with general events. Collection and bookmark transactions use the original record shape. The source event identifies the lifecycle stage. The decoder transforms PID and exit codes into numbers and preserves source paths and command lines.
+
+Sysmon uses its reported `ProcessGuid` as the subject identity and can report `ParentProcessGuid` separately. In Security 4688, the parent fields describe the reported creator. Security 4688/4689 provide PIDs and may be missing process fields depending on provider version and audit configuration. The projection leaves unknown fields null and makes no cross-source joins based on PID.
+
 ## Retention and disk-policy evidence
 
 The new `retention_deletions` table stores per-channel deletion summaries: deletion time, count, oldest/newest observation timestamps, and policy cutoff. A local-only opt-in `SYSWITNESS_RETENTION_DAYS` determines whether old event copies may be deleted; default is OFF. The evidence records and deletion summaries are modified in one SQLite transaction. Collector checkpoints are intentionally unaffected by retention. The API exposes deletion summaries but never issues deletion commands. Soft limits estimate physical database/WAL/SHM bytes plus incoming batch growth; exceeding the estimate pauses ingestion and retains the prior checkpoint. This is **not** a strict filesystem size guarantee or proof of lossless coverage.
