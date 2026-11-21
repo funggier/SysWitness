@@ -6,6 +6,9 @@
 .vscode/
 *.user
 *.suo
+# Portable user data and credentials: never commit
+config/
+artifacts/
 # Runtime telemetry and secrets
 data/
 logs/

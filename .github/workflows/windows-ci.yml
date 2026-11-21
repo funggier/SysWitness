@@ -26,6 +26,9 @@ jobs:
         run: dotnet build SysWitness.sln -c Release --no-restore --nologo -warnaserror
       - name: SQLite, checkpoint, rollback and search smoke tests
         run: dotnet run --project tests/SysWitness.SmokeTests -c Release --no-build
+      - name: Build self-contained portable Windows x64 archive
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Portable.ps1
 
 # Live Windows Event Log API tests are run locally by tests/Run-ApiSmoke.ps1
 # against a disposable database. They are not used as a CI release guarantee.

@@ -11,6 +11,8 @@ The dependencies below are **not** relicensed under the SysWitness proprietary n
 | SQLitePCLRaw.bundle_e_sqlite3 | 2.1.12 (transitive) | Apache-2.0 |
 | SQLitePCLRaw.lib.e_sqlite3 | 2.1.12 (transitive) | Apache-2.0 |
 
-The exact transitive dependency graph must be reviewed before every binary release. This page is a partial project-level record, not a substitute for shipping all applicable upstream license notices and any required license/NOTICE files with redistributed binaries.
+The Windows self-contained portable ZIP also embeds the Microsoft .NET Runtime and ships `DOTNET_RUNTIME_LICENSE.txt` and `DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt` copied from the .NET distribution on the Windows build host. The Apache-2.0 license text is included as `APACHE-2.0-LICENSE.txt` in the ZIP. The application-owned source remains All Rights Reserved; upstream licenses continue to apply to their respective components.
 
-License metadata was checked in the local NuGet package manifests on 2026-11-20. All Rights Reserved governs the original SysWitness contributions; it does not remove rights granted by third-party licenses.
+The exact transitive dependency graph must be reviewed before every binary release. This list documents known direct/transitive packages and redistribution notices; it is not a substitute for verifying every redistributed component and any required upstream NOTICE files.
+
+License metadata was checked in local NuGet manifests during November 2026, including SQLitePCLRaw's Apache-2.0 package metadata. All Rights Reserved governs the original SysWitness contributions; it does not remove rights granted by third-party licenses.

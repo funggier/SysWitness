@@ -30,6 +30,7 @@ Windows Event Log | Sysmon | ETW | WFP | NTFS USN | device sources
 ```
 
 ## Project documents
+- [Portable Windows ZIP / relocate instructions (Thai)](portable/README-PORTABLE-TH.md)
 - [Current implementation status and next steps](docs/DEVELOPMENT_STATUS.md)
 - [Storage and retention policy (Thai)](docs/STORAGE_POLICY_TH.md)
 - [Client API keys and read scopes (Thai)](docs/API_CLIENTS_TH.md)
@@ -45,6 +46,12 @@ Windows Event Log | Sysmon | ETW | WFP | NTFS USN | device sources
 
 ## Proposed technology
 C#/.NET 10, ASP.NET Core Minimal API, SQLite in MVP, Windows Event Log as initial provider. Future integrations are modular and opt-in. Elevated Windows audit configuration is a distinct local setup operation, **not** a remote API feature.
+
+## Portable Windows x64 build
+
+The **self-contained portable ZIP** is built with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Portable.ps1`. The output is in ignored `artifacts/`. Extract the ZIP, run `Start-SysWitness.cmd`, and stop the app before moving the **entire** folder to any other writable Windows location. The launcher resolves its paths relative to itself, creates local `config/` and `data/` folders, generates a random first-run owner API key locally, and never stores absolute drive paths in its default settings. **The ZIP deliberately excludes logs, databases and secrets.** See [portable guide](portable/README-PORTABLE-TH.md). The user machine does not need a separate .NET runtime.
+
+To verify real relocation on Windows, run `powershell -NoProfile -ExecutionPolicy Bypass -File tests/Test-PortableRelocation.ps1` after building the ZIP. Portable mode does not install a service, driver, audit policy or global environment variables.
 
 ## Quick start (development only)
 

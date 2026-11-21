@@ -21,6 +21,14 @@ On the Windows development machine:
 - `dotnet list SysWitness.sln package --vulnerable --include-transitive`: no listed vulnerable dependency in latest local query. Always re-audit on release.
 - GitHub Windows workflows successfully completed for commits `62c3b0f` and `f9a69c3`. Current commit result must be checked separately.
 
+## Portable Windows x64 packaging (new)
+
+- `scripts/Build-Portable.ps1` produces `artifacts/SysWitness-0.1.0-preview.1-win-x64-portable.zip` using .NET 10 **self-contained**, untrimmed win-x64 publish. No .NET install is required on the target machine.
+- Open `Start-SysWitness.cmd` from the extracted folder; first run generates `config/settings.json`, a local client key registry and `config/owner-token.txt` (sensitive; private folder only). SQLite remains at relative `data/events.sqlite` by default. No registry edits, Windows service or driver installation.
+- `tests/Test-PortableRelocation.ps1` performs actual ZIP extraction, first run, API query, process stop, **move/rename folder**, restart, retained owner key, old event lookup, and checkpoint checks. It passed on the development Windows machine using an isolated test folder.
+- Source/build tools and the .NET SDK are needed to *produce* the ZIP, not to *run* it. Self-contained .NET runtime redistribution notices are included in the package.
+- Moving across machines may change provider access/identity and filesystem ACL behavior; only same-machine directory relocation has been verified so far.
+
 ## Important limitations
 
 - No promise of lossless collection: initial coverage is bounded, a provider may drop events, and severe log churn/clear can defeat replay.

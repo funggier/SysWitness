@@ -1,0 +1,8 @@
+{
+  "port": 8769,
+  "eventChannels": "System,Application",
+  "dataDirectory": "data",
+  "storageSoftLimitMB": 4096,
+  "minFreeDiskMB": 1024,
+  "retentionDays": null
+}

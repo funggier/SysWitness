@@ -50,7 +50,8 @@
 - [ ] Separate read-only MCP Adapter with no host-control tools
 
 ## M6 — Release preparation
-- [ ] Portable-friendly packaging and first-run setup documentation
+- [x] Self-contained Windows x64 ZIP with local first-run config/token, relative paths, no installer, verified folder relocation and persisted evidence
+- [ ] Add broader packaging verification (clean Windows, different filesystems and architecture support)
 - [ ] Windows 10/11 verification and source-provider compatibility
 - [ ] Security, storage, privacy, dependency-license and compatibility audits
 

@@ -44,5 +44,9 @@ The optional `StorageMaintenanceService` runs only when `SYSWITNESS_RETENTION_DA
 
 `SysWitness.Security` independently validates a locally provided JSON list of client IDs, SHA-256 token hashes, and `events.read`/`coverage.read`/`storage.read` scopes. Neither raw Client tokens nor permission updates are accepted through the Data API. The legacy global Token remains as an optional all-read-scopes credential for backward compatibility. The registry is loaded once at startup; changes require restart. See [API_CLIENTS_TH.md](API_CLIENTS_TH.md).
 
+## Portable and relocatable application layout
+
+Windows x64 release builds use self-contained .NET publish (not trimmed or single-file) so that runtime DLLs and native SQLite dependencies reside alongside the app with no extraction cache outside the folder. The `Start-SysWitness.cmd` / `.ps1` bootstrap resolves its application root from the script path, not the process working directory. Default settings, client API key hashes, owner token and database are stored in local `config/` and `data/` directories. No hardcoded drive, registry key, Windows Service or installer is required. The first-run secret exists only after unpacking and is **excluded from public ZIPs**. Local settings require relative data paths inside the portable root; moving the entire folder preserves the database and bookmarks. See [portable guide](../portable/README-PORTABLE-TH.md).
+
 ## Configuration boundary
 Only a local, separately authorized setup/admin interface may install providers, configure Windows audits, or modify the collector. No such actions exist in public data API, MCP toolset, or AI interface.
