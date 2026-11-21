@@ -82,6 +82,8 @@ try {
     $headers = @{ 'X-SysWitness-Token' = $tokenBefore }
     $processesBefore = Invoke-RestMethod ($baseUrl + '/api/v1/processes/events?limit=1') -Headers $headers -TimeoutSec 4
     if ($processesBefore.limit -ne 1) { throw 'New portable owner cannot read process events.' }
+    $networkBefore = Invoke-RestMethod ($baseUrl + '/api/v1/network/connections?limit=1') -Headers $headers -TimeoutSec 4
+    if ($networkBefore.limit -ne 1) { throw 'New portable owner cannot read network events.' }
     $eventsBefore = Invoke-RestMethod ($baseUrl + '/api/v1/events?limit=3') -Headers $headers -TimeoutSec 4
     $coverageBefore = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
     if ($eventsBefore.returned -lt 1 -or $coverageBefore.status -notin @('collecting','degraded')) {
@@ -104,6 +106,8 @@ try {
     if ($tokenAfter -ne $tokenBefore) { throw 'Portable owner token changed after relocation.' }
     $processesAfter = Invoke-RestMethod ($baseUrl + '/api/v1/processes/events?limit=1') -Headers $headers -TimeoutSec 4
     if ($processesAfter.limit -ne 1) { throw 'Relocated owner cannot read process events.' }
+    $dnsAfter = Invoke-RestMethod ($baseUrl + '/api/v1/network/dns?limit=1') -Headers $headers -TimeoutSec 4
+    if ($dnsAfter.limit -ne 1) { throw 'Relocated portable owner cannot read DNS events.' }
     $byId = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $idBefore) -Headers $headers -TimeoutSec 4
     if ($byId.eventId -ne $idBefore) {
         throw 'An event stored before relocation disappeared from the moved SQLite DB.'

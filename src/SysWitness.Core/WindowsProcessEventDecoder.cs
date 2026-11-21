@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Xml;
-using System.Xml.Linq;
 using SysWitness.Contracts;
 
 namespace SysWitness.Core;
@@ -11,14 +9,6 @@ public static class WindowsProcessEventDecoder
     public const string SysmonProvider = "Microsoft-Windows-Sysmon";
     public const string SecurityChannel = "Security";
     public const string SecurityProvider = "Microsoft-Windows-Security-Auditing";
-
-    private static readonly XNamespace EventNamespace = "http://schemas.microsoft.com/win/2004/08/events/event";
-    private static readonly XmlReaderSettings XmlSettings = new()
-    {
-        DtdProcessing = DtdProcessing.Prohibit,
-        XmlResolver = null,
-        MaxCharactersInDocument = 1_048_576
-    };
 
     public static ProcessEvent? Decode(ObservedEvent evidence)
     {
@@ -33,18 +23,18 @@ public static class WindowsProcessEventDecoder
         if (kind is null)
             return null;
 
-        var fields = ReadFields(evidence.RawXml);
+        var fields = WindowsEventXml.ReadFields(evidence.RawXml);
         string? Field(string name) => fields?.GetValueOrDefault(name);
         var start = kind == "start";
         var processId = ParsePid(Field(start && security ? "NewProcessId" : "ProcessId"), security);
-        var processGuid = sysmon ? ParseGuid(Field("ProcessGuid")) : null;
+        var processGuid = sysmon ? WindowsEventXml.ParseGuid(Field("ProcessGuid")) : null;
         var path = Field(security ? (start ? "NewProcessName" : "ProcessName") : "Image");
 
         ProcessEventParent? parent = null;
         if (start)
         {
             var parentId = ParsePid(Field(sysmon ? "ParentProcessId" : "ProcessId"), security);
-            var parentGuid = sysmon ? ParseGuid(Field("ParentProcessGuid")) : null;
+            var parentGuid = sysmon ? WindowsEventXml.ParseGuid(Field("ParentProcessGuid")) : null;
             var parentPath = Field(sysmon ? "ParentImage" : "ParentProcessName");
             if (parentId is not null || parentGuid is not null || parentPath is not null)
                 parent = new ProcessEventParent(parentId, parentGuid, parentPath);
@@ -63,46 +53,7 @@ public static class WindowsProcessEventDecoder
 
     /// <summary>Read the subject GUID from a Sysmon payload already selected by provider and event ID.</summary>
     public static Guid? ReadSysmonProcessGuid(string xml) =>
-        ParseGuid(ReadFields(xml)?.GetValueOrDefault("ProcessGuid"));
-
-    private static Dictionary<string, string?>? ReadFields(string xml)
-    {
-        try
-        {
-            using var input = new StringReader(xml);
-            using var reader = XmlReader.Create(input, XmlSettings);
-            var root = XDocument.Load(reader, LoadOptions.PreserveWhitespace).Root;
-            if (root?.Name != EventNamespace + "Event")
-                return null;
-            var payloads = root.Elements(EventNamespace + "EventData").Take(2).ToArray();
-            if (payloads.Length != 1)
-                return null;
-
-            var fields = new Dictionary<string, string?>(StringComparer.Ordinal);
-            foreach (var element in payloads[0].Elements(EventNamespace + "Data"))
-            {
-                if (element.Attribute("Name")?.Value is not { Length: > 0 } name)
-                    continue;
-                var value = !element.HasElements && !string.IsNullOrWhiteSpace(element.Value) &&
-                    element.Value.Trim() != "-" ? element.Value : null;
-                if (!fields.TryAdd(name, value))
-                    fields[name] = null;
-            }
-            return fields;
-        }
-        catch (XmlException)
-        {
-            return null;
-        }
-    }
-
-    private static Guid? ParseGuid(string? value)
-    {
-        if ((Guid.TryParseExact(value, "B", out var id) || Guid.TryParseExact(value, "D", out id)) &&
-            id != Guid.Empty)
-            return id;
-        return null;
-    }
+        WindowsEventXml.ParseGuid(WindowsEventXml.ReadFields(xml)?.GetValueOrDefault("ProcessGuid"));
 
     private static uint? ParsePid(string? value, bool hexadecimal)
     {

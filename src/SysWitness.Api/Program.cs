@@ -167,4 +167,5 @@ app.MapGet("/api/v1/events/{eventId}", async (string eventId, SqliteEventStore s
 
 // Intentionally no OS control, firewall, process action, or configuration endpoints.
 app.MapProcessEventEndpoints();
+app.MapNetworkEventEndpoints();
 await app.RunAsync();

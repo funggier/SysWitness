@@ -15,6 +15,7 @@ API รับ `X-SysWitness-Token` ผ่าน HTTP บน `127.0.0.1` เท�
 | `events.read` | `GET /api/v1/events`, `GET /api/v1/events/{eventId}` |
 | `coverage.read` | `GET /api/v1/monitoring/coverage`, `GET /api/v1/monitoring/gaps` |
 | `storage.read` | `GET /api/v1/storage/status`, `GET /api/v1/storage/retention` |
+| `network.read` | `GET /api/v1/network/connections`, `GET /api/v1/network/dns` |
 | `processes.read` | `GET /api/v1/processes/events`, `GET /api/v1/processes/{processGuid}/timeline` |
 
 ไม่มี Scope `*.write`, `*.execute`, `firewall.*`, `protection.*` หรือสิทธิ์แก้ไขการตั้งค่า. เพิ่มสิทธิ์ใหม่ในอนาคตต้องเพิ่มทั้ง API Contract, การตรวจสิทธิ์, และ Test อย่างชัดเจน
@@ -75,7 +76,7 @@ $env:SYSWITNESS_CLIENT_KEYS_FILE = $clientConfig
 
 ### การใช้ร่วมกับ Token เดิม
 
-`SYSWITNESS_API_TOKEN` ที่มีอยู่เดิมยังใช้ได้เพื่อความเข้ากันได้ โดยได้รับสิทธิ์เดิม `events.read`, `coverage.read` และ `storage.read`. สำหรับรายละเอียดโปรเซสให้เพิ่ม `processes.read` ใน `scopes` ของ Client ที่ต้องใช้ แล้วเปิดโปรแกรมใหม่ ข้อมูลที่อ่านได้รวมถึง command line. ถ้าตั้งค่าไฟล์ Client เพิ่ม จะใช้ทั้งสองรูปแบบร่วมกันได้; หากตั้งเฉพาะ `SYSWITNESS_CLIENT_KEYS_FILE` และไม่ตั้ง Token เดิมก็สามารถใช้ Client-scoped API ได้
+`SYSWITNESS_API_TOKEN` ที่มีอยู่เดิมยังใช้ได้เพื่อความเข้ากันได้ โดยได้รับสิทธิ์เดิม `events.read`, `coverage.read` และ `storage.read`. สำหรับรายละเอียดโปรเซสให้เพิ่ม `processes.read` ใน `scopes` ของ Client ที่ต้องใช้ แล้วเปิดโปรแกรมใหม่ ข้อมูลที่อ่านได้รวมถึง command line. สำหรับข้อมูลการเชื่อมต่อและ DNS ให้เพิ่ม `network.read` เฉพาะ Client ที่ต้องการอ่านข้อมูลเครือข่าย. ถ้าตั้งค่าไฟล์ Client เพิ่ม จะใช้ทั้งสองรูปแบบร่วมกันได้; หากตั้งเฉพาะ `SYSWITNESS_CLIENT_KEYS_FILE` และไม่ตั้ง Token เดิมก็สามารถใช้ Client-scoped API ได้
 
 เพื่อให้ Client มีสิทธิ์เฉพาะหน้าที่ แนะนำให้หลีกเลี่ยงการนำ Token เดิมไปใส่ในแอปเสริม ใช้ Token เฉพาะแต่ละโปรแกรมแทน หากต้องการยกเลิก Token เดิมให้ลบตัวแปร `SYSWITNESS_API_TOKEN` ออกจากสภาพแวดล้อมก่อนเริ่มโปรแกรมใหม่
 

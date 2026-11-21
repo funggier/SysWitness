@@ -42,6 +42,10 @@ Initial MVP hosts independently configured System/Application Event Log collecto
 
 A separate local process collector writes WMI lifecycle notifications or comparisons of Windows process inventories through the same SQLite evidence store and disk guards. In `auto` mode, WMI is attempted under the current account. A failed or stopped WMI subscription switches the collector to snapshots for the current run and reports the reason in coverage. Snapshots are taken about every two seconds, with changes classified as derived observations. WMI uses a bounded queue and reports detected drops. Neither local source has Event Log bookmarks or replay. If collectors are enabled together, each source retains its own evidence, even for the same process.
 
+## Network and DNS monitoring
+
+The network projection reads the retained Sysmon and Security evidence through the same paginated query path used by process views. It preserves source decisions, direction and endpoint roles. A Sysmon Process GUID can select matching DNS and connection records. Security audit events retain their source PID. The separate `network.read` scope protects DNS names, host addresses and source image paths. The collectors use existing Windows Event Log bookmarks and retention for these sources.
+
 ## Local storage maintenance boundary
 
 The optional `StorageMaintenanceService` runs only when `SYSWITNESS_RETENTION_DAYS` is configured locally. It deletes old normalized/raw evidence copies in bounded SQLite batches and records aggregate deletion history in the same transaction. The default is no automatic deletion. Storage is governed by a conservative approximate soft limit **and** minimum available free bytes on the database volume. If a batch would exceed the estimated budget, leave less than the configured disk reserve, or if free space cannot be checked, collectors pause and **do not** advance native bookmarks. An HTTP client, MCP or AI cannot change these rules or invoke deletion. The API offers only read-only `/storage/status` and `/storage/retention` endpoints. Full disk-quota enforcement and compaction remain out of scope for this step.

@@ -37,7 +37,8 @@
 - [x] Decode process start/exit, parent fields and source provenance from Sysmon and Windows Security; expose the process feed and per-GUID Sysmon timeline
 - [x] Collect live process changes through WMI where permitted, with an automatic Windows snapshot fallback and coverage reporting
 - [ ] Verify against live Sysmon and Security lifecycle events on a Windows account with accessible sources
-- [ ] Decode Windows/Sysmon network and DNS records with source-aware process attribution
+- [x] Decode Sysmon network and DNS records and Windows Security WFP audit decisions with source-aware process attribution
+- [ ] Verify live collection of Sysmon network/DNS and Security WFP records under an account with source access
 - [ ] ETW/WFP/network collectors with measured impact and loss reporting
 - [ ] File/Registry/service/device source adapters with explicit coverage limitations
 - [ ] Workload performance and disk impact benchmarks

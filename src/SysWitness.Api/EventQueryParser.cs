@@ -13,14 +13,16 @@ internal static class EventQueryParser
     };
 
     public static bool TryParse(HttpRequest request, out EventQuery? query, out string error,
-        bool processOnly = false)
+        bool allowCategory = true, bool allowProcessGuid = false)
     {
         query = null;
         error = "";
         foreach (var field in request.Query)
         {
-            if (!AllowedKeys.Contains(field.Key) || field.Value.Count != 1 ||
-                (processOnly && field.Key.Equals("category", StringComparison.OrdinalIgnoreCase)))
+            var supported = AllowedKeys.Contains(field.Key) || (allowProcessGuid &&
+                field.Key.Equals("processGuid", StringComparison.OrdinalIgnoreCase));
+            if (!supported || field.Value.Count != 1 ||
+                (!allowCategory && field.Key.Equals("category", StringComparison.OrdinalIgnoreCase)))
             {
                 error = "Unsupported or repeated query parameter.";
                 return false;

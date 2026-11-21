@@ -17,6 +17,7 @@ $env:SYSWITNESS_PROCESS_MODE = 'off'
 # Separate read-only clients; only token hashes are stored in this temporary file.
 $eventsClientToken = 'event-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $processClientToken = 'process-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+$networkClientToken = 'net-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $storageClientToken = 'store-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 function TokenHash([string]$value) {
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -29,6 +30,7 @@ $clientFile = Join-Path $testDir 'client-keys.json'
 @{ clients = @(
     @{ id = 'events-client'; tokenSha256 = (TokenHash $eventsClientToken); scopes = @('events.read') },
     @{ id = 'process-client'; tokenSha256 = (TokenHash $processClientToken); scopes = @('processes.read') },
+    @{ id = 'network-client'; tokenSha256 = (TokenHash $networkClientToken); scopes = @('network.read') },
     @{ id = 'storage-client'; tokenSha256 = (TokenHash $storageClientToken); scopes = @('storage.read') }
 )} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $clientFile -Encoding UTF8
 $env:SYSWITNESS_CLIENT_KEYS_FILE = $clientFile
@@ -127,6 +129,8 @@ try {
     & dotnet run --project $fixtureProject --no-build -- --seed-process-fixtures (Join-Path $testDir 'events.sqlite')
     if ($LASTEXITCODE -ne 0) { throw 'Process fixture setup failed' }
 
+    & dotnet run --project $fixtureProject --no-build -- --seed-network-fixtures (Join-Path $testDir 'events.sqlite')
+    if ($LASTEXITCODE -ne 0) { throw 'Network fixture setup failed' }
     $coverage = Start-TestApi
     if ($coverage.processCollector.status -ne 'disabled') { throw 'Process collector should be disabled in the Event Log test.' }
     $processPath = '/api/v1/processes/events'
@@ -158,6 +162,45 @@ try {
         throw 'General event summary must preserve its category and hide command-line data'
     }
     Expect-Status '/api/v1/events' 'GET' 401 $false
+    $connectionsPath = '/api/v1/network/connections'
+    $dnsPath = '/api/v1/network/dns'
+    $guid = '11111111-2222-4333-8444-555555555555'
+    Expect-Status $connectionsPath 'GET' 401 $false
+    Expect-Status $dnsPath 'GET' 403 $true
+    Expect-Status $connectionsPath 'POST' 404 $true
+    Expect-ScopedStatus $processClientToken $connectionsPath 403
+    Expect-ScopedStatus $eventsClientToken $dnsPath 403
+    Expect-ScopedStatus $networkClientToken '/api/v1/processes/events' 403
+    Expect-ScopedStatus $networkClientToken ($dnsPath + '?processGuid=78') 400
+    Expect-ScopedStatus $networkClientToken ($dnsPath + '?processGuid=') 400
+    Expect-ScopedStatus $networkClientToken ($dnsPath + '?processGuid=' + $guid + '&processGuid=' + $guid) 400
+    Expect-ScopedStatus $networkClientToken ($connectionsPath + '?cursor=bad') 400
+    Expect-ScopedStatus $networkClientToken ($connectionsPath + '?limit=501') 400
+    Expect-ScopedStatus $networkClientToken ($connectionsPath + '?category=windows.event') 400
+    $networkHeaders = @{ 'X-SysWitness-Token' = $networkClientToken }
+    # Process fixtures also retain a minimal Sysmon 3 event. Query the newer network fixture window.
+    $networkFrom = [uri]::EscapeDataString('2026-01-02T00:00:00Z')
+    $connectionsUrl = $baseUrl + $connectionsPath + '?processGuid=' + $guid + '&fromUtc=' + $networkFrom
+    $connections = Invoke-RestMethod $connectionsUrl -Headers $networkHeaders -TimeoutSec 4
+    if ($connections.returned -ne 1 -or $connections.items[0].destinationEndpoint.address -ne '2001:db8::7' -or
+        $connections.items[0].process.attribution -ne 'processGuid' -or
+        ($connections.items[0].PSObject.Properties.Name -contains 'rawXml')) {
+        throw 'GUID filtered network response did not preserve source evidence'
+    }
+    $wfp = Invoke-RestMethod ($baseUrl + $connectionsPath + '?channel=Security&sourceEventId=5157') -Headers $networkHeaders -TimeoutSec 4
+    if ($wfp.returned -ne 1 -or $wfp.items[0].decision -ne 'blocked' -or $wfp.items[0].process.attribution -ne 'pidOnly') {
+        throw 'Security WFP decisions must retain PID-only attribution'
+    }
+    $dns = Invoke-RestMethod ($baseUrl + $dnsPath + '?limit=1&processGuid=' + $guid) -Headers $networkHeaders -TimeoutSec 4
+    if ($dns.returned -ne 1 -or -not $dns.nextCursor -or $dns.items[0].queryStatus -ne 9003) {
+        throw 'DNS timeline did not include the matching failed query'
+    }
+    $dnsNext = $baseUrl + $dnsPath + '?processGuid=' + $guid + '&limit=1&cursor=' + [uri]::EscapeDataString($dns.nextCursor)
+    $dnsAfter = Invoke-RestMethod $dnsNext -Headers $networkHeaders -TimeoutSec 4
+    if ($dnsAfter.returned -ne 1 -or $dnsAfter.nextCursor -or $dnsAfter.items[0].queryName -ne 'fixture.example') {
+        throw 'DNS cursor did not return the next matching query'
+    }
+
     Expect-ScopedStatus $eventsClientToken '/api/v1/events?limit=1' 200
     Expect-ScopedStatus $eventsClientToken '/api/v1/monitoring/coverage' 403
     Expect-ScopedStatus $eventsClientToken '/api/v1/storage/status' 403
@@ -287,7 +330,7 @@ try {
         $systemAfterOptional.lastRecordId -lt $firstRecordId) {
         throw 'Optional channel failure disrupted the System collector'
     }
-    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
+    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, network and DNS feeds, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi

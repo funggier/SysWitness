@@ -34,6 +34,10 @@ The process API decodes structured fields on read from retained Windows Event Lo
 
 Sysmon uses its reported `ProcessGuid` as the subject identity and can report `ParentProcessGuid` separately. In Security 4688, the parent fields describe the reported creator. Security 4688/4689 provide PIDs and may be missing process fields depending on provider version and audit configuration. The projection leaves unknown fields null and makes no cross-source joins based on PID.
 
+## Network and DNS event projection
+
+Network connection and DNS views decode fields from existing Event Log evidence. They preserve the same event ID as the generic summary, source channel/provider/event/record IDs, and collection and occurrence times. Endpoints retain source/destination order and include a role when the provider supplies enough information. Windows Security WFP decisions describe permit/block outcomes at the filtering layer. Sysmon DNS results preserve the provider's string, including any returned aliases or addresses. The Sysmon subject GUID is suitable for exact process filtering. A Windows Security PID alone is not a stable process identity.
+
 ## Retention and disk-policy evidence
 
 The new `retention_deletions` table stores per-channel deletion summaries: deletion time, count, oldest/newest observation timestamps, and policy cutoff. A local-only opt-in `SYSWITNESS_RETENTION_DAYS` determines whether old event copies may be deleted; default is OFF. The evidence records and deletion summaries are modified in one SQLite transaction. Collector checkpoints are intentionally unaffected by retention. The API exposes deletion summaries but never issues deletion commands. Soft limits estimate physical database/WAL/SHM bytes plus incoming batch growth; exceeding the estimate pauses ingestion and retains the prior checkpoint. This is **not** a strict filesystem size guarantee or proof of lossless coverage.

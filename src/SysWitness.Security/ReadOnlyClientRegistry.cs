@@ -15,7 +15,8 @@ public sealed class ReadOnlyClientRegistry
     public const string CoverageRead = "coverage.read";
     public const string StorageRead = "storage.read";
     public const string ProcessesRead = "processes.read";
-    private static readonly HashSet<string> ValidScopes = [EventsRead, CoverageRead, StorageRead, ProcessesRead];
+    public const string NetworkRead = "network.read";
+    private static readonly HashSet<string> ValidScopes = [EventsRead, CoverageRead, StorageRead, ProcessesRead, NetworkRead];
     private static readonly Regex IdFormat = new(@"\A[a-zA-Z0-9._-]{1,64}\z", RegexOptions.Compiled);
     private readonly IReadOnlyList<ClientEntry> _entries;
 
@@ -146,6 +147,8 @@ public sealed class ReadOnlyClientRegistry
             Regex.IsMatch(path, @"\A/api/v1/processes/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/timeline\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return ProcessesRead;
+        if (path is "/api/v1/network/connections" or "/api/v1/network/dns")
+            return NetworkRead;
         if (path == "/api/v1/monitoring/coverage" || path == "/api/v1/monitoring/gaps")
             return CoverageRead;
         if (path == "/api/v1/storage/status" || path == "/api/v1/storage/retention")

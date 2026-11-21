@@ -22,7 +22,7 @@ internal static class ProcessEventEndpoints
     private static async Task<IResult> ReadPageAsync(
         HttpContext context, SqliteEventStore store, Guid? processGuid, CancellationToken ct)
     {
-        if (!EventQueryParser.TryParse(context.Request, out var query, out var error, processOnly: true))
+        if (!EventQueryParser.TryParse(context.Request, out var query, out var error, allowCategory: false))
             return Results.BadRequest(new { error = "invalid_query", message = error });
 
         try
