@@ -18,6 +18,12 @@ if (args is ["--seed-process-fixtures", var databasePath])
     return;
 }
 
+if (args is ["--seed-activity-fixtures", var activityDatabasePath])
+{
+    await ProcessActivitySmoke.SeedAsync(activityDatabasePath);
+    return;
+}
+
 if (args is ["--seed-network-fixtures", var networkDatabasePath])
 {
     await NetworkMonitoringSmoke.SeedAsync(networkDatabasePath);
@@ -47,6 +53,7 @@ try
     await ProcessMonitoringSmoke.VerifyAsync(Path.Combine(temp, "process.sqlite"));
     await LocalProcessCollectionSmoke.VerifyAsync(Path.Combine(temp, "local-process.sqlite"));
     await NetworkMonitoringSmoke.VerifyAsync(Path.Combine(temp, "network.sqlite"));
+    await ProcessActivitySmoke.VerifyAsync(Path.Combine(temp, "activity.sqlite"));
     // Client registry contains SHA-256 hashes only, no raw credentials.
     var clientFile = Path.Combine(temp, "clients.json");
     var eventToken = new string('e', 64);
@@ -399,7 +406,7 @@ try
     }
 
     Console.WriteLine("PASS: durable bookmarks, independent sources, cursor search, " +
-        "opt-in retention, disk-free guard, process and network projections and scoped read-only client keys");
+        "opt-in retention, disk-free guard, process and network projections, host-scoped activity and scoped read-only client keys");
 }
 finally
 {

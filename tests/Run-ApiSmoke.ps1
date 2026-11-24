@@ -18,6 +18,7 @@ $env:SYSWITNESS_PROCESS_MODE = 'off'
 $eventsClientToken = 'event-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $processClientToken = 'process-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $networkClientToken = 'net-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+$activityClientToken = 'activity-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $storageClientToken = 'store-' + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 function TokenHash([string]$value) {
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -31,6 +32,7 @@ $clientFile = Join-Path $testDir 'client-keys.json'
     @{ id = 'events-client'; tokenSha256 = (TokenHash $eventsClientToken); scopes = @('events.read') },
     @{ id = 'process-client'; tokenSha256 = (TokenHash $processClientToken); scopes = @('processes.read') },
     @{ id = 'network-client'; tokenSha256 = (TokenHash $networkClientToken); scopes = @('network.read') },
+    @{ id = 'activity-client'; tokenSha256 = (TokenHash $activityClientToken); scopes = @('processes.read', 'network.read') },
     @{ id = 'storage-client'; tokenSha256 = (TokenHash $storageClientToken); scopes = @('storage.read') }
 )} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $clientFile -Encoding UTF8
 $env:SYSWITNESS_CLIENT_KEYS_FILE = $clientFile
@@ -131,6 +133,8 @@ try {
 
     & dotnet run --project $fixtureProject --no-build -- --seed-network-fixtures (Join-Path $testDir 'events.sqlite')
     if ($LASTEXITCODE -ne 0) { throw 'Network fixture setup failed' }
+    & dotnet run --project $fixtureProject --no-build -- --seed-activity-fixtures (Join-Path $testDir 'events.sqlite')
+    if ($LASTEXITCODE -ne 0) { throw 'Activity fixture setup failed' }
     $coverage = Start-TestApi
     if ($coverage.processCollector.status -ne 'disabled') { throw 'Process collector should be disabled in the Event Log test.' }
     $processPath = '/api/v1/processes/events'
@@ -199,6 +203,59 @@ try {
     $dnsAfter = Invoke-RestMethod $dnsNext -Headers $networkHeaders -TimeoutSec 4
     if ($dnsAfter.returned -ne 1 -or $dnsAfter.nextCursor -or $dnsAfter.items[0].queryName -ne 'fixture.example') {
         throw 'DNS cursor did not return the next matching query'
+    }
+
+    $activityPath = '/api/v1/processes/aaaaaaaa-2222-4333-8444-555555555555/activity'
+    $activityQuery = $activityPath + '?computer=activity-fixture-host'
+    Expect-Status $activityQuery 'GET' 401 $false
+    Expect-Status $activityQuery 'GET' 403 $true
+    Expect-Status $activityQuery 'POST' 404 $true
+    Expect-ScopedStatus $processClientToken $activityQuery 403
+    Expect-ScopedStatus $networkClientToken $activityQuery 403
+    Expect-ScopedStatus $eventsClientToken $activityQuery 403
+    Expect-ScopedStatus $activityClientToken $activityPath 400
+    Expect-ScopedStatus $activityClientToken ($activityPath + '?computer=') 400
+    Expect-ScopedStatus $activityClientToken ($activityQuery + '&computer=other-fixture-host') 400
+    Expect-ScopedStatus $activityClientToken ($activityQuery + '&category=windows.event') 400
+    Expect-ScopedStatus $activityClientToken ($activityQuery + '&unknown=1') 400
+    Expect-ScopedStatus $activityClientToken ($activityQuery + '&limit=501') 400
+    Expect-ScopedStatus $activityClientToken ($activityQuery + '&cursor=invalid') 400
+    Expect-ScopedStatus $activityClientToken '/api/v1/processes/00000000-0000-0000-0000-000000000000/activity?computer=activity-fixture-host' 400
+    Expect-ScopedStatus $activityClientToken ($activityPath + '/extra?computer=activity-fixture-host') 404
+    $activityHeaders = @{ 'X-SysWitness-Token' = $activityClientToken }
+    $activity = Invoke-RestMethod ($baseUrl + $activityQuery) -Headers $activityHeaders -TimeoutSec 4
+    if ($activity.returned -ne 4 -or $activity.quality -ne 'derived' -or
+        $activity.correlationMethod -ne 'sysmon_subject_guid_and_computer_v1' -or
+        $activity.limitations.Count -lt 5 -or
+        @($activity.items.kind | Sort-Object -Unique).Count -ne 4) {
+        throw 'Activity must combine four typed observations with derivation and limitations'
+    }
+    if (($activity | ConvertTo-Json -Depth 12 -Compress) -match '"rawXml"') {
+        throw 'Activity must not expose raw evidence'
+    }
+    foreach ($item in $activity.items) {
+        $summary = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $item.eventId) -Headers $headers -TimeoutSec 4
+        if ($summary.eventId -ne $item.eventId) { throw 'Activity event reference is not retained evidence' }
+    }
+    $seenActivity = @()
+    $activityCursor = $null
+    do {
+        $activityUrl = $baseUrl + $activityQuery + '&limit=1'
+        if ($activityCursor) { $activityUrl += '&cursor=' + [uri]::EscapeDataString($activityCursor) }
+        $part = Invoke-RestMethod $activityUrl -Headers $activityHeaders -TimeoutSec 4
+        if ($part.returned -ne 1) { throw 'Activity identity filtering must precede pagination' }
+        $seenActivity += $part.items[0].eventId
+        $activityCursor = $part.nextCursor
+        if ($seenActivity.Count -gt 4) { throw 'Activity pagination did not terminate' }
+    } while ($activityCursor)
+    if ($seenActivity.Count -ne 4 -or @($seenActivity | Select-Object -Unique).Count -ne 4 -or
+        ($seenActivity -join ',') -ne ($activity.items.eventId -join ',')) {
+        throw 'Activity pagination changed order or repeated evidence'
+    }
+    $otherHostActivity = Invoke-RestMethod ($baseUrl + $activityPath + '?computer=other-fixture-host') -Headers $activityHeaders -TimeoutSec 4
+    $emptyActivity = Invoke-RestMethod ($baseUrl + $activityPath + '?computer=unknown-fixture-host') -Headers $activityHeaders -TimeoutSec 4
+    if ($otherHostActivity.returned -ne 1 -or $emptyActivity.returned -ne 0) {
+        throw 'Activity must isolate host identity and return an empty page for absent evidence'
     }
 
     Expect-ScopedStatus $eventsClientToken '/api/v1/events?limit=1' 200
@@ -330,7 +387,7 @@ try {
         $systemAfterOptional.lastRecordId -lt $firstRecordId) {
         throw 'Optional channel failure disrupted the System collector'
     }
-    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, network and DNS feeds, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
+    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, network and DNS feeds, host-scoped activity and combined permissions, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi

@@ -5,7 +5,7 @@ param([string]$ZipPath = '')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $ZipPath) {
-    $ZipPath = Join-Path $root 'artifacts\SysWitness-0.1.0-preview.1-win-x64-portable.zip'
+    $ZipPath = Join-Path $root 'artifacts\SysWitness-0.1.0-preview.2-win-x64-portable.zip'
 }
 $zip = (Resolve-Path -LiteralPath $ZipPath).Path
 $temporary = Join-Path $root ('artifacts\_relocation-test-' + [guid]::NewGuid().ToString('N'))
@@ -84,6 +84,11 @@ try {
     if ($processesBefore.limit -ne 1) { throw 'New portable owner cannot read process events.' }
     $networkBefore = Invoke-RestMethod ($baseUrl + '/api/v1/network/connections?limit=1') -Headers $headers -TimeoutSec 4
     if ($networkBefore.limit -ne 1) { throw 'New portable owner cannot read network events.' }
+    $activityRoute = '/api/v1/processes/aaaaaaaa-2222-4333-8444-555555555555/activity?computer=portable-fixture-host&limit=1'
+    $activityBefore = Invoke-RestMethod ($baseUrl + $activityRoute) -Headers $headers -TimeoutSec 4
+    if ($activityBefore.limit -ne 1 -or $activityBefore.quality -ne 'derived') {
+        throw 'Portable owner cannot read the combined activity route.'
+    }
     $eventsBefore = Invoke-RestMethod ($baseUrl + '/api/v1/events?limit=3') -Headers $headers -TimeoutSec 4
     $coverageBefore = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
     if ($eventsBefore.returned -lt 1 -or $coverageBefore.status -notin @('collecting','degraded')) {
@@ -108,6 +113,10 @@ try {
     if ($processesAfter.limit -ne 1) { throw 'Relocated owner cannot read process events.' }
     $dnsAfter = Invoke-RestMethod ($baseUrl + '/api/v1/network/dns?limit=1') -Headers $headers -TimeoutSec 4
     if ($dnsAfter.limit -ne 1) { throw 'Relocated portable owner cannot read DNS events.' }
+    $activityAfter = Invoke-RestMethod ($baseUrl + $activityRoute) -Headers $headers -TimeoutSec 4
+    if ($activityAfter.limit -ne 1 -or $activityAfter.correlationMethod -ne $activityBefore.correlationMethod) {
+        throw 'Relocated portable owner cannot read the combined activity route.'
+    }
     $byId = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $idBefore) -Headers $headers -TimeoutSec 4
     if ($byId.eventId -ne $idBefore) {
         throw 'An event stored before relocation disappeared from the moved SQLite DB.'
@@ -120,7 +129,7 @@ try {
             throw ('Collector checkpoint regressed for ' + $before.channel)
         }
     }
-    Write-Output ('PASS: self-contained ZIP, first-run token, SQLite, bookmarked events and API continue after folder relocation; port=' + $port)
+    Write-Output ('PASS: self-contained ZIP, first-run token, SQLite, bookmarked events and combined activity API continue after folder relocation; port=' + $port)
 } finally {
     Stop-PortableProcess
     [Environment]::SetEnvironmentVariable('SYSWITNESS_PROCESS_MODE', $originalProcessMode)

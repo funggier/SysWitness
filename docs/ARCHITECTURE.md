@@ -46,6 +46,10 @@ A separate local process collector writes WMI lifecycle notifications or compari
 
 The network projection reads the retained Sysmon and Security evidence through the same paginated query path used by process views. It preserves source decisions, direction and endpoint roles. A Sysmon Process GUID can select matching DNS and connection records. Security audit events retain their source PID. The separate `network.read` scope protects DNS names, host addresses and source image paths. The collectors use existing Windows Event Log bookmarks and retention for these sources.
 
+## Initial activity correlation
+
+`ProcessActivityProjection` composes the existing typed projections and describes the derivation limits. `SqliteProcessActivity` filters Sysmon channel/provider, supported event IDs, exact computer and decoded subject GUID before paging through the shared evidence query path. It reads existing records without ingest changes, migrations or additional stored telemetry. The activity endpoint requires the conjunction of process and network read scopes through the central authorization middleware. The historical single-scope classifier fails closed for composite routes. No PID-only joins, inferred causal edges or raw evidence mutation are introduced.
+
 ## Local storage maintenance boundary
 
 The optional `StorageMaintenanceService` runs only when `SYSWITNESS_RETENTION_DAYS` is configured locally. It deletes old normalized/raw evidence copies in bounded SQLite batches and records aggregate deletion history in the same transaction. The default is no automatic deletion. Storage is governed by a conservative approximate soft limit **and** minimum available free bytes on the database volume. If a batch would exceed the estimated budget, leave less than the configured disk reserve, or if free space cannot be checked, collectors pause and **do not** advance native bookmarks. An HTTP client, MCP or AI cannot change these rules or invoke deletion. The API offers only read-only `/storage/status` and `/storage/retention` endpoints. Full disk-quota enforcement and compaction remain out of scope for this step.

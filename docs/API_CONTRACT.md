@@ -17,12 +17,13 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /evidence/{id} | Raw evidence if authorized | evidence.read |
 | GET | /processes/events | Source-backed process start/exit events | processes.read |
 | GET | /processes/{processGuid}/timeline | Sysmon events for a single subject Process GUID | processes.read |
+| GET | /processes/{processGuid}/activity | Host-scoped Sysmon lifecycle, DNS and connection observations | processes.read AND network.read |
 | GET | /network/connections | Sysmon connections and Windows Filtering Platform audit decisions | network.read |
 | GET | /network/dns | Sysmon DNS query events and reported outcomes | network.read |
 | GET | /events/stream | Authenticated SSE with cursor and replay | events.stream |
 | GET | /schemas/events | Supported event schemas and field coverage | schema.read |
 
-**Implemented in the current prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc), GET /events/{id}, GET /processes/events, GET /processes/{processGuid}/timeline, GET /network/connections and GET /network/dns. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy token for event summaries, coverage and storage or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
+**Implemented in the current prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc), GET /events/{id}, GET /processes/events, GET /processes/{processGuid}/timeline, GET /network/connections and GET /network/dns, plus GET /processes/{processGuid}/activity. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy token for event summaries, coverage and storage or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
 
 ## Local storage policy (no remote configuration)
 - Retention is disabled by default. A *local* environment variable `SYSWITNESS_RETENTION_DAYS` may enable opt-in deletion of aged local event copies with durable summary records. `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` defaults to 4096 MiB and conservatively pauses ingestion on projected storage pressure without advancing bookmarks.
@@ -57,6 +58,15 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 - These routes require an explicit `processes.read` scope, which includes access to sensitive command lines. Give it only to clients that need process details. The standard `/events` responses retain their existing summary fields and categories.
 
 See [Sysmon events](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon#events), [Security 4688](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4688) and [Security 4689](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4689).
+
+## Process activity correlation
+
+- `GET /processes/{processGuid}/activity?computer=<recorded-computer>` combines retained Sysmon 1/5/3/22 records. It requires **both** `processes.read` and `network.read` in the same authenticated client. No legacy permissions are expanded.
+- The subject GUID and nonempty recorded Computer must match exactly before pagination. Computer matching is case-sensitive; there is no hostname/FQDN alias inference. Names are limited to 256 characters with no control characters. Missing/duplicate/invalid identity input returns 400; unknown identity returns an empty page with 200.
+- The response adds `processGuid`, `computer`, `correlationMethod=sysmon_subject_guid_and_computer_v1`, `quality=derived` and `limitations` to the standard page envelope. Each item contains the original `eventId`, occurrence and observation times, `kind`, and one populated typed payload: `lifecycle`, `connection` or `dnsQuery`. Payload provenance is unchanged. Raw XML is never returned. Resolving an event summary separately requires `events.read`.
+- Supported filters are `limit`, `cursor`, `channel`, `provider`, `sourceEventId`, `fromUtc` and `toUtc`, plus required `computer`. GUID comes from the route; `category` and a query `processGuid` are rejected. Ordering and cursor limitations match the typed feeds. Preserve all identity and filter parameters across pages.
+- This is exact equality of **reported identity fields**, not independent identity verification or DNS-to-connection causality. Security/WMI/snapshot PID-only records are excluded. Missing lifecycle records and collection/retention gaps can leave the timeline incomplete. The existing `/timeline` lifecycle-only route retains its historical behavior.
+- See [Activity guide](PROCESS_ACTIVITY_TH.md) for examples and remaining work.
 
 ## Network and DNS monitoring
 

@@ -18,6 +18,8 @@ API รับ `X-SysWitness-Token` ผ่าน HTTP บน `127.0.0.1` เท�
 | `network.read` | `GET /api/v1/network/connections`, `GET /api/v1/network/dns` |
 | `processes.read` | `GET /api/v1/processes/events`, `GET /api/v1/processes/{processGuid}/timeline` |
 
+**Timeline รวม Process/DNS/Network:** `GET /api/v1/processes/{processGuid}/activity?computer=<recorded-computer>` ต้องมี **ทั้ง** `processes.read` และ `network.read` ใน Client เดียวกัน ขาดอย่างใดอย่างหนึ่งตอบ 403; Token เดิมไม่ได้สิทธิ์เพิ่ม ไม่มี Scope ใหม่ ดู [คู่มือ Activity](PROCESS_ACTIVITY_TH.md).
+
 ไม่มี Scope `*.write`, `*.execute`, `firewall.*`, `protection.*` หรือสิทธิ์แก้ไขการตั้งค่า. เพิ่มสิทธิ์ใหม่ในอนาคตต้องเพิ่มทั้ง API Contract, การตรวจสิทธิ์, และ Test อย่างชัดเจน
 
 ## ตั้งค่า Client ใหม่ (PowerShell)

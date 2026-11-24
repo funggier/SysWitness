@@ -137,6 +137,15 @@ public sealed class ReadOnlyClientRegistry
     /// <summary>
     /// Explicit fail-closed route classification. Unknown paths do not inherit any read scope.
     /// </summary>
+    public static IReadOnlyList<string>? RequiredScopes(string path)
+    {
+        if (Regex.IsMatch(path, @"\A/api/v1/processes/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/activity\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return [ProcessesRead, NetworkRead];
+        return RequiredScope(path) is { } scope ? [scope] : null;
+    }
+
+    // Retained for callers that classify single-scope routes. Composite routes fail closed here.
     public static string? RequiredScope(string path)
     {
         if (path == "/api/v1/events" ||

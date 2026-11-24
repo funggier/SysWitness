@@ -44,7 +44,8 @@
 - [ ] Workload performance and disk impact benchmarks
 
 ## M4 — Analytics
-- [ ] Process tree/correlation graph, cross-source timelines and explanation/provenance links
+- [x] Initial retained Sysmon activity timeline grouped by exact subject GUID and recorded host, combining lifecycle/DNS/network with derived quality, provenance and combined read authorization
+- [ ] Process tree/parent-child graph, additional source identity relationships and cross-source timelines with supported confidence
 - [ ] Deterministic rule engine and optional AI-assisted investigation as client
 - [ ] Source-visible evidence exports; acceptance tests for inference vs fact
 

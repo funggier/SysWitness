@@ -77,14 +77,14 @@ app.Use(async (context, next) =>
         return;
     }
 
-    var scope = ReadOnlyClientRegistry.RequiredScope(context.Request.Path.Value ?? "");
+    var scopes = ReadOnlyClientRegistry.RequiredScopes(context.Request.Path.Value ?? "");
     // No non-read method or unknown API path inherits permissions.
-    if (scope is null || !HttpMethods.IsGet(context.Request.Method))
+    if (scopes is null || !HttpMethods.IsGet(context.Request.Method))
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
         return;
     }
-    if (!client!.CanRead(scope))
+    if (scopes.Any(scope => !client!.CanRead(scope)))
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         return;
@@ -168,4 +168,5 @@ app.MapGet("/api/v1/events/{eventId}", async (string eventId, SqliteEventStore s
 // Intentionally no OS control, firewall, process action, or configuration endpoints.
 app.MapProcessEventEndpoints();
 app.MapNetworkEventEndpoints();
+app.MapProcessActivityEndpoints();
 await app.RunAsync();

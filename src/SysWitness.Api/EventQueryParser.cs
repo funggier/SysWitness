@@ -13,14 +13,15 @@ internal static class EventQueryParser
     };
 
     public static bool TryParse(HttpRequest request, out EventQuery? query, out string error,
-        bool allowCategory = true, bool allowProcessGuid = false)
+        bool allowCategory = true, bool allowProcessGuid = false, bool allowComputer = false)
     {
         query = null;
         error = "";
         foreach (var field in request.Query)
         {
             var supported = AllowedKeys.Contains(field.Key) || (allowProcessGuid &&
-                field.Key.Equals("processGuid", StringComparison.OrdinalIgnoreCase));
+                field.Key.Equals("processGuid", StringComparison.OrdinalIgnoreCase)) || (allowComputer &&
+                field.Key.Equals("computer", StringComparison.OrdinalIgnoreCase));
             if (!supported || field.Value.Count != 1 ||
                 (!allowCategory && field.Key.Equals("category", StringComparison.OrdinalIgnoreCase)))
             {
