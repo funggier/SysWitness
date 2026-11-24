@@ -24,7 +24,7 @@ public sealed partial class SqliteEventStore
                 """
             : """
                 (channel=$sysmon AND provider=$sysmon_provider AND source_event_id IN (1,5)
-                  AND syswitness_process_guid(raw_xml)=$process_guid)
+                  AND event_id IN (SELECT event_id FROM process_identity_projection WHERE version=1 AND process_guid=$process_guid))
                 """;
         cmd.Parameters.AddWithValue("$sysmon", WindowsProcessEventDecoder.SysmonChannel);
         cmd.Parameters.AddWithValue("$sysmon_provider", WindowsProcessEventDecoder.SysmonProvider);

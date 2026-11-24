@@ -2,9 +2,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SysWitness.Contracts\SysWitness.Contracts.csproj" />
+    <ProjectReference Include="..\SysWitness.Collectors.Windows\SysWitness.Collectors.Windows.csproj" />
     <ProjectReference Include="..\SysWitness.Core\SysWitness.Core.csproj" />
     <ProjectReference Include="..\SysWitness.Storage\SysWitness.Storage.csproj" />
     <ProjectReference Include="..\SysWitness.Security\SysWitness.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\dashboard\**\*" Link="dashboard\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

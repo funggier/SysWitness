@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <title>SysWitness — ภาพรวมหลักฐานระบบ</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/model.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">ข้ามไปเนื้อหา</a>
+  <aside class="sidebar">
+    <a href="/" class="brand" aria-label="SysWitness หน้าแรก"><span class="brand-icon" aria-hidden="true">S</span><span>SysWitness<small>LOCAL OBSERVABILITY</small></span></a>
+    <span class="nav-label">สำรวจหลักฐาน</span>
+    <nav aria-label="ส่วนข้อมูล">
+      <button type="button" data-panel="overview" aria-pressed="true"><span aria-hidden="true">◫</span> ภาพรวม</button>
+      <button type="button" data-panel="events" aria-pressed="false"><span aria-hidden="true">≡</span> เหตุการณ์</button>
+      <button type="button" data-panel="processes" aria-pressed="false"><span aria-hidden="true">⌘</span> โปรเซส</button>
+      <button type="button" data-panel="network" aria-pressed="false"><span aria-hidden="true">⇄</span> เครือข่ายและ DNS</button>
+      <button type="button" data-panel="activity" aria-pressed="false"><span aria-hidden="true">◇</span> กิจกรรมระบบ</button>
+      <button type="button" data-panel="storage" aria-pressed="false"><span aria-hidden="true">▤</span> พื้นที่จัดเก็บ</button>
+    </nav>
+    <div class="sidebar-note"><span class="tiny-dot"></span> อ่านข้อมูลเท่านั้น<p>หลักฐานที่เก็บไว้ในเครื่อง<br>ไม่มีคำสั่งควบคุมระบบ</p></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div><span class="eyebrow">SYSWITNESS / DASHBOARD</span><p>หน้าต่างข้อมูลของเครื่องนี้</p></div>
+      <span class="badge neutral">GET /api/v1</span>
+    </header>
+    <section class="connection" aria-labelledby="connection-title">
+      <div class="connection-copy"><h2 id="connection-title">การเชื่อมต่อส่วนตัว</h2><p id="connection-state" role="status">ยังไม่เชื่อมต่อ • กรอก Token เพื่ออ่านข้อมูล</p></div>
+      <form id="connect-form" autocomplete="off">
+        <label class="sr-only" for="token">Client Token</label>
+        <input id="token" type="password" placeholder="Client Token" autocomplete="off" spellcheck="false" required aria-describedby="token-help">
+        <button type="submit" class="primary" id="connect-button">เชื่อมต่อ</button>
+        <button type="button" id="disconnect-button" disabled>ตัดการเชื่อมต่อ</button>
+      </form>
+      <p class="connection-help" id="token-help">ใช้ Token ในหน่วยความจำของหน้านี้เท่านั้น เมื่อเลิกใช้ให้ตัดการเชื่อมต่อ</p>
+    </section>
+    <main id="main">
+      <section id="overview" class="panel" aria-labelledby="overview-title">
+        <div class="section-heading"><div><span class="eyebrow">OVERVIEW</span><h1 id="overview-title">ภาพรวมการสังเกตระบบ</h1><p>สถานะจากเซิร์ฟเวอร์และขอบเขตของหลักฐานที่อ่านได้</p></div><div class="toolbar"><label class="check-label"><input type="checkbox" id="auto-refresh" checked> อัปเดตทุก 15 วินาที</label><button type="button" id="overview-refresh" data-needs-connection>อ่านใหม่</button></div></div>
+        <p class="notice">ข้อมูลนี้เป็นมุมมองบางส่วนของหลักฐานที่ยังเก็บไว้ สถานะกำลังเก็บข้อมูลไม่ได้รับประกันว่าครบทุกเหตุการณ์</p>
+        <p class="state-line" id="overview-state" role="status">รอการเชื่อมต่อ</p>
+        <div class="metrics" id="overview-metrics"></div>
+        <article class="card"><div class="card-heading"><h2>ความครอบคลุมของแหล่งข้อมูล</h2><span class="badge neutral">coverage.read</span></div><div id="coverage-result" class="result"><p class="empty">ยังไม่ได้อ่านข้อมูล</p></div></article>
+        <article class="card"><div class="card-heading"><h2>การเก็บข้อมูลโปรเซส</h2></div><div id="collector-result" class="result"><p class="empty">ยังไม่ได้อ่านข้อมูล</p></div></article>
+        <article class="card"><div class="card-heading"><h2>ช่วงข้อมูลขาดหาย</h2><span class="badge neutral">สูงสุด 100 รายการ</span></div><form id="gaps-form" class="compact-form"><label>Channel<input name="channel" placeholder="System"></label><label>จำนวน<input name="limit" type="number" min="1" max="100" value="50" required></label><button type="submit" data-needs-connection>อ่านประวัติ</button></form><p id="gaps-state" class="state-line" role="status">อ่านเมื่อร้องขอเท่านั้น</p><div id="gaps-result"></div></article>
+      </section>
+      <section id="events" class="panel" aria-labelledby="events-title" hidden>
+        <div class="section-heading"><div><span class="eyebrow">EVENT EXPLORER</span><h1 id="events-title">เหตุการณ์</h1><p>กรองข้อมูลแบบมีโครงสร้างและเปิดสรุปหลักฐานต้นทาง</p></div><span class="badge neutral">events.read</span></div>
+        <div id="events-client"></div>
+        <article class="card" id="event-detail" hidden><div class="card-heading"><h2>สรุปเหตุการณ์</h2><button type="button" id="detail-close">ปิดรายละเอียด</button></div><div id="detail-result"></div></article>
+      </section>
+      <section id="processes" class="panel" aria-labelledby="processes-title" hidden>
+        <div class="section-heading"><div><span class="eyebrow">PROCESS EVIDENCE</span><h1 id="processes-title">โปรเซสและความสัมพันธ์</h1><p>แยกข้อมูลต้นทางกับความสัมพันธ์ที่อนุมานจาก GUID ที่รายงาน</p></div><span class="badge neutral">processes.read</span></div>
+        <p class="notice">WMI เป็นการสังเกต ส่วน Snapshot เป็นการพบ/หายไประหว่างการสุ่มตัวอย่างและอาจพลาดโปรเซสอายุสั้น Tree และ Activity ใช้ Sysmon GUID และ Computer ตรงตามต้นทาง ไม่จับคู่จาก PID</p>
+        <div id="processes-client"></div>
+      </section>
+      <section id="network" class="panel" aria-labelledby="network-title" hidden>
+        <div class="section-heading"><div><span class="eyebrow">NETWORK EVIDENCE</span><h1 id="network-title">เครือข่ายและ DNS</h1><p>การเชื่อมต่อ การตัดสินของ WFP และผล DNS ที่ต้นทางรายงาน</p></div><span class="badge neutral">network.read</span></div>
+        <p class="notice">WFP allowed หมายถึงนโยบายอนุญาต ส่วน DNS อาจเป็น Cache หรือคำขอล้มเหลว ทั้งสองอย่างไม่พิสูจน์ว่าการเชื่อมต่อสำเร็จและไม่ใช่เนื้อหาแพ็กเก็ต</p>
+        <div id="network-client"></div>
+      </section>
+      <section id="activity" class="panel" aria-labelledby="activity-title" hidden>
+        <div class="section-heading"><div><span class="eyebrow">SYSTEM ACTIVITY</span><h1 id="activity-title">กิจกรรมระบบ</h1><p>มุมมองหลักฐานแยกตามประเภทที่ API รองรับ</p></div><span class="badge neutral">ตามสิทธิ์แต่ละประเภท</span></div>
+        <p class="notice">ไม่มีข้อมูลไม่ได้แปลว่าไม่มีกิจกรรม หาก API หรือ Source ยังไม่พร้อม ระบบจะแสดงสถานะตามที่ได้รับ โดยไม่สร้างข้อมูลทดแทน</p>
+        <div id="activity-client"></div>
+      </section>
+      <section id="storage" class="panel" aria-labelledby="storage-title" hidden>
+        <div class="section-heading"><div><span class="eyebrow">LOCAL EVIDENCE STORE</span><h1 id="storage-title">พื้นที่จัดเก็บ</h1><p>ขนาดข้อมูล นโยบายการเก็บรักษา และประวัติการลบสำเนาในเครื่อง</p></div><button type="button" id="storage-refresh" data-needs-connection>อ่านใหม่</button></div>
+        <p class="notice">ขนาดไฟล์และพื้นที่ว่างเป็นค่าขณะอ่าน Soft limit ไม่ใช่โควตาดิสก์ตายตัว การรับหลักฐานอาจหยุดก่อนถึงค่าที่แสดง ไม่มีปุ่มเปลี่ยนนโยบายหรือลบข้อมูลจากหน้านี้</p>
+        <p id="storage-state" class="state-line" role="status">รอการเชื่อมต่อ</p>
+        <div class="metrics" id="storage-metrics"></div>
+        <article class="card"><div class="card-heading"><h2>สถานะพื้นที่จัดเก็บ</h2><span class="badge neutral">storage.read</span></div><div id="storage-result"></div></article>
+        <article class="card"><div class="card-heading"><h2>ประวัติ Retention</h2><span class="badge neutral">50 รายการล่าสุด</span></div><p id="retention-state" class="state-line" role="status">ยังไม่ได้อ่านข้อมูล</p><div id="retention-result"></div></article>
+      </section>
+      <footer>SysWitness · Local read-only dashboard <span>เวลาจาก Source แสดงเป็น UTC · ช่องว่าง “—” คือข้อมูลที่ไม่รายงาน</span></footer>
+    </main>
+  </div>
+  <noscript><p class="notice">ต้องเปิด JavaScript เพื่อใช้ Dashboard นี้</p></noscript>
+</body>
+</html>

@@ -48,9 +48,7 @@ public sealed partial class SqliteEventStore
 
     private static void BindSysmonProcessGuid(SqliteConnection db, SqliteCommand cmd, Guid processGuid)
     {
-        db.CreateFunction("syswitness_process_guid",
-            (string xml) => WindowsProcessEventDecoder.ReadSysmonProcessGuid(xml)?.ToString("D"),
-            isDeterministic: true);
+        // GUID selection is backed by the durable derived identity index.
         cmd.Parameters.AddWithValue("$process_guid", processGuid.ToString("D"));
     }
 }

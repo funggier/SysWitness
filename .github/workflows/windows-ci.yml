@@ -26,6 +26,10 @@ jobs:
         run: dotnet build SysWitness.sln -c Release --no-restore --nologo -warnaserror
       - name: SQLite, checkpoint, rollback and search smoke tests
         run: dotnet run --project tests/SysWitness.SmokeTests -c Release --no-build
+      - name: SDK and MCP bounded read-only client tests
+        run: dotnet run --project tests/SysWitness.ClientTests -c Release --no-build
+      - name: Dashboard state and text-rendering tests
+        run: node --test tests/DashboardTests/model.test.cjs tests/DashboardTests/app.test.cjs
       - name: Live local process collector smoke test
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/Test-ProcessCollection.ps1

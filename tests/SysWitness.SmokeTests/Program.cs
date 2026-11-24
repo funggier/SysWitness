@@ -61,6 +61,9 @@ try
     await NetworkMonitoringSmoke.VerifyAsync(Path.Combine(temp, "network.sqlite"));
     await ProcessActivitySmoke.VerifyAsync(Path.Combine(temp, "activity.sqlite"));
     await ProcessTreeSmoke.VerifyAsync(Path.Combine(temp, "tree.sqlite"));
+    await ProcessProjectionSmoke.VerifyAsync(Path.Combine(temp, "projection.sqlite"));
+    await SystemActivitySmoke.VerifyAsync(Path.Combine(temp, "system-activity.sqlite"));
+    await NativeNetworkSmoke.VerifyAsync(Path.Combine(temp, "native-network.sqlite"));
     // Client registry contains SHA-256 hashes only, no raw credentials.
     var clientFile = Path.Combine(temp, "clients.json");
     var eventToken = new string('e', 64);

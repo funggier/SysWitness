@@ -12,12 +12,7 @@ public sealed partial class SqliteEventStore
     {
         var tree = new ProcessTreeBuilder(processGuid, computer, maxDepth, nodeLimit);
         await using var db = await OpenAsync(ct);
-        db.CreateFunction("syswitness_process_guid",
-            (string xml) => WindowsProcessEventDecoder.ReadSysmonProcessGuid(xml)?.ToString("D"),
-            isDeterministic: true);
-        db.CreateFunction("syswitness_parent_process_guid",
-            (string xml) => WindowsProcessEventDecoder.ReadSysmonParentProcessGuid(xml)?.ToString("D"),
-            isDeterministic: true);
+        // Subject and parent matching use persisted derived indexes; no XML query functions.
 
         // All expansion queries share one SQLite read snapshot, including concurrent retention.
         await using var tx = db.BeginTransaction(deferred: true);
@@ -40,8 +35,9 @@ public sealed partial class SqliteEventStore
                        source_event_id,source_record_id,computer,raw_xml
                 FROM events
                 WHERE channel=$sysmon AND provider=$provider AND source_event_id=1 AND computer=$computer
-                  AND (syswitness_process_guid(raw_xml) IN ({guids})
-                       OR syswitness_parent_process_guid(raw_xml) IN ({guids}))
+                  AND event_id IN (SELECT event_id FROM process_identity_projection
+                    WHERE version=1 AND computer=$computer
+                      AND (process_guid IN ({guids}) OR parent_guid IN ({guids})))
                   {exclusions}
                 ORDER BY occurred_at_utc DESC,event_id DESC LIMIT $limit;
                 """;

@@ -100,7 +100,7 @@ public sealed class CollectionState
             _processCollector = coverage;
     }
 
-    public object Snapshot()
+    public object Snapshot(object? networkCollector = null)
     {
         lock (_sync)
         {
@@ -130,6 +130,7 @@ public sealed class CollectionState
                     .Select(c => "windows-eventlog:" + c.Channel).ToArray(),
                 channels,
                 processCollector = _processCollector,
+                networkCollector,
                 plannedCollectors = new[] { "ETW", "WFP", "NTFS", "Registry", "Devices" }
             };
         }

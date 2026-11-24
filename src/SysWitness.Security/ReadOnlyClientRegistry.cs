@@ -16,7 +16,12 @@ public sealed class ReadOnlyClientRegistry
     public const string StorageRead = "storage.read";
     public const string ProcessesRead = "processes.read";
     public const string NetworkRead = "network.read";
-    private static readonly HashSet<string> ValidScopes = [EventsRead, CoverageRead, StorageRead, ProcessesRead, NetworkRead];
+    public const string FilesRead = "files.read";
+    public const string RegistryRead = "registry.read";
+    public const string AuthenticationRead = "authentication.read";
+    public const string ServicesRead = "services.read";
+    public const string DevicesRead = "devices.read";
+    private static readonly HashSet<string> ValidScopes = [EventsRead, CoverageRead, StorageRead, ProcessesRead, NetworkRead, FilesRead, RegistryRead, AuthenticationRead, ServicesRead, DevicesRead];
     private static readonly Regex IdFormat = new(@"\A[a-zA-Z0-9._-]{1,64}\z", RegexOptions.Compiled);
     private readonly IReadOnlyList<ClientEntry> _entries;
 
@@ -156,11 +161,17 @@ public sealed class ReadOnlyClientRegistry
             Regex.IsMatch(path, @"\A/api/v1/processes/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/(?:timeline|tree)\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return ProcessesRead;
-        if (path is "/api/v1/network/connections" or "/api/v1/network/dns")
+        if (path is "/api/v1/network/connections" or "/api/v1/network/dns" or "/api/v1/network/inventory")
             return NetworkRead;
+        if (path == "/api/v1/activity/files") return FilesRead;
+        if (path == "/api/v1/activity/registry") return RegistryRead;
+        if (path == "/api/v1/activity/authentication") return AuthenticationRead;
+        if (path is "/api/v1/activity/services" or "/api/v1/activity/drivers" or "/api/v1/activity/tasks") return ServicesRead;
+        if (path == "/api/v1/activity/devices") return DevicesRead;
+        if (path is "/api/v1/activity/modules" or "/api/v1/activity/process-access") return ProcessesRead;
         if (path == "/api/v1/monitoring/coverage" || path == "/api/v1/monitoring/gaps")
             return CoverageRead;
-        if (path == "/api/v1/storage/status" || path == "/api/v1/storage/retention")
+        if (path is "/api/v1/storage/status" or "/api/v1/storage/retention" or "/api/v1/storage/projections")
             return StorageRead;
         return null;
     }

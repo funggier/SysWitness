@@ -33,7 +33,7 @@ public sealed partial class SqliteEventStore
         if (processGuid is Guid guid)
         {
             BindSysmonProcessGuid(db, cmd, guid);
-            source += " AND syswitness_process_guid(raw_xml)=$process_guid";
+            source += " AND event_id IN (SELECT event_id FROM process_identity_projection WHERE version=1 AND process_guid=$process_guid)";
         }
         else if (sysmonEvent == SysmonNetworkConnect)
         {

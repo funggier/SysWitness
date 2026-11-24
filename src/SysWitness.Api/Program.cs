@@ -19,6 +19,7 @@ var configuredChannels = WindowsEventLogChannels.ParseEnabled(
 
 var processMode = ProcessCollectorCoverage.ParseMode(
     Environment.GetEnvironmentVariable("SYSWITNESS_PROCESS_MODE"));
+var networkMode = NetworkCollectorState.ParseMode(Environment.GetEnvironmentVariable("SYSWITNESS_NETWORK_MODE"));
 var storagePolicy = StoragePolicy.FromEnvironment();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,10 @@ if (string.IsNullOrWhiteSpace(dataDirectory))
 builder.Services.AddSingleton(new SqliteEventStore(
     Path.Combine(dataDirectory, "events.sqlite"), storagePolicy));
 builder.Services.AddSingleton(new CollectionState(configuredChannels, processMode));
+builder.Services.AddSingleton(new NetworkCollectorState(networkMode));
+builder.Services.AddHostedService(sp => new WindowsNetworkCollectionService(networkMode,
+    sp.GetRequiredService<SqliteEventStore>(), sp.GetRequiredService<NetworkCollectorState>(),
+    sp.GetRequiredService<ILogger<WindowsNetworkCollectionService>>()));
 if (processMode != ProcessCollectionMode.Off)
 {
     builder.Services.AddHostedService(sp => new WindowsProcessCollectionService(processMode,
@@ -52,6 +57,7 @@ await app.Services.GetRequiredService<SqliteEventStore>().InitializeAsync();
 app.Use(async (context, next) =>
 {
     context.Response.Headers.CacheControl = "no-store";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
 
     // An HTTP request on loopback can still arrive with an attacker-controlled Host header.
     // Reject non-loopback host names to reduce DNS-rebinding exposure.
@@ -59,6 +65,13 @@ app.Use(async (context, next) =>
         !string.Equals(context.Request.Host.Host, "localhost", StringComparison.OrdinalIgnoreCase))
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return;
+    }
+
+    if (DashboardAssets.IsPublicPath(context.Request.Path.Value) && HttpMethods.IsGet(context.Request.Method))
+    {
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+        await next(context);
         return;
     }
 
@@ -111,10 +124,10 @@ app.MapGet("/api/v1/storage/retention",
             return Results.BadRequest(new { error = "invalid_limit" });
         return Results.Ok(await store.GetRetentionHistoryAsync(limit, ct));
     });
-app.MapGet("/api/v1/monitoring/coverage", (HttpContext context, CollectionState state) =>
+app.MapGet("/api/v1/monitoring/coverage", (HttpContext context, CollectionState state, NetworkCollectorState networkState) =>
 {
     if (context.Request.Query.Count == 0)
-        return Results.Ok(state.Snapshot());
+        return Results.Ok(state.Snapshot(networkState.Snapshot()));
 
     if (context.Request.Query.Count != 1 ||
         !context.Request.Query.TryGetValue("channel", out var names) || names.Count != 1 ||
@@ -170,4 +183,9 @@ app.MapProcessEventEndpoints();
 app.MapNetworkEventEndpoints();
 app.MapProcessActivityEndpoints();
 app.MapProcessTreeEndpoints();
+app.MapSystemActivityEndpoints();
+app.MapNetworkInventoryEndpoints();
+app.MapDashboardEndpoints();
+app.MapGet("/api/v1/storage/projections", async (SqliteEventStore store, CancellationToken ct) =>
+    Results.Ok(await store.GetProcessProjectionStatusAsync(ct)));
 await app.RunAsync();

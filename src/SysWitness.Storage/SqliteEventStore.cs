@@ -35,7 +35,7 @@ public sealed partial class SqliteEventStore
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         _connectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = fullPath, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = true
+            DataSource = fullPath, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = true, ForeignKeys = true
         }.ToString();
     }
 
@@ -96,6 +96,7 @@ public sealed partial class SqliteEventStore
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await InitializeProcessProjectionAsync(cancellationToken);
     }
 
     public async Task<CollectorCheckpoint?> GetCheckpointAsync(string channel, CancellationToken ct = default)
@@ -162,7 +163,9 @@ public sealed partial class SqliteEventStore
                 insert.Parameters.AddWithValue("$recordid", (object?)item.SourceRecordId ?? DBNull.Value);
                 insert.Parameters.AddWithValue("$computer", (object?)item.Computer ?? DBNull.Value);
                 insert.Parameters.AddWithValue("$raw", item.RawXml);
-                count += await insert.ExecuteNonQueryAsync(ct);
+                var added = await insert.ExecuteNonQueryAsync(ct);
+                count += added;
+                if (added != 0) await ProjectInsertedEventAsync(db, tx, item, ct);
             }
 
             if (gapReason is not null)
@@ -259,7 +262,9 @@ public sealed partial class SqliteEventStore
                 cmd.Parameters.AddWithValue("$recordid", (object?)e.SourceRecordId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$computer", (object?)e.Computer ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$raw", e.RawXml);
-                inserted += await cmd.ExecuteNonQueryAsync(ct);
+                var added = await cmd.ExecuteNonQueryAsync(ct);
+                inserted += added;
+                if (added != 0) await ProjectInsertedEventAsync(db, tx, e, ct);
             }
             await tx.CommitAsync(ct);
             return inserted;

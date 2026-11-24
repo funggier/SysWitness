@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SysWitness.Contracts\SysWitness.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\SysWitness.Collectors.Windows\SysWitness.Collectors.Windows.csproj" />
     <ProjectReference Include="..\..\src\SysWitness.Core\SysWitness.Core.csproj" />
     <ProjectReference Include="..\..\src\SysWitness.Storage\SysWitness.Storage.csproj" />
 
