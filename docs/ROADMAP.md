@@ -45,7 +45,8 @@
 
 ## M4 — Analytics
 - [x] Initial retained Sysmon activity timeline grouped by exact subject GUID and recorded host, combining lifecycle/DNS/network with derived quality, provenance and combined read authorization
-- [ ] Process tree/parent-child graph, additional source identity relationships and cross-source timelines with supported confidence
+- [x] Initial bounded Sysmon descendant tree with parent references, evidence-backed edges, unresolved identity, cycle/conflict flags and explicit limits
+- [ ] Full ancestor exploration, additional source identity relationships and cross-source timelines with supported confidence
 - [ ] Deterministic rule engine and optional AI-assisted investigation as client
 - [ ] Source-visible evidence exports; acceptance tests for inference vs fact
 

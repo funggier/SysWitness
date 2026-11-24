@@ -135,6 +135,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Network fixture setup failed' }
     & dotnet run --project $fixtureProject --no-build -- --seed-activity-fixtures (Join-Path $testDir 'events.sqlite')
     if ($LASTEXITCODE -ne 0) { throw 'Activity fixture setup failed' }
+    & dotnet run --project $fixtureProject --no-build -- --seed-tree-fixtures (Join-Path $testDir 'events.sqlite')
+    if ($LASTEXITCODE -ne 0) { throw 'Tree fixture setup failed' }
     $coverage = Start-TestApi
     if ($coverage.processCollector.status -ne 'disabled') { throw 'Process collector should be disabled in the Event Log test.' }
     $processPath = '/api/v1/processes/events'
@@ -203,6 +205,49 @@ try {
     $dnsAfter = Invoke-RestMethod $dnsNext -Headers $networkHeaders -TimeoutSec 4
     if ($dnsAfter.returned -ne 1 -or $dnsAfter.nextCursor -or $dnsAfter.items[0].queryName -ne 'fixture.example') {
         throw 'DNS cursor did not return the next matching query'
+    }
+
+    $treePath = '/api/v1/processes/cccccccc-2222-4333-8444-555555555555/tree'
+    $treeQuery = $treePath + '?computer=tree-fixture-host'
+    Expect-Status $treeQuery 'GET' 401 $false
+    Expect-Status $treeQuery 'GET' 403 $true
+    Expect-Status $treeQuery 'POST' 404 $true
+    Expect-ScopedStatus $networkClientToken $treeQuery 403
+    Expect-ScopedStatus $eventsClientToken $treeQuery 403
+    Expect-ScopedStatus $processClientToken $treePath 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&computer=other-tree-host') 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&depth=9') 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&depth=-1') 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&limit=0') 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&limit=257') 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&cursor=invalid') 400
+    Expect-ScopedStatus $processClientToken ($treeQuery + '&depth=1&depth=2') 400
+    Expect-ScopedStatus $processClientToken '/api/v1/processes/00000000-0000-0000-0000-000000000000/tree?computer=tree-fixture-host' 400
+    Expect-ScopedStatus $processClientToken ($treePath + '/kill?computer=tree-fixture-host') 404
+    $tree = Invoke-RestMethod ($baseUrl + $treeQuery) -Headers $processHeaders -TimeoutSec 4
+    if ($tree.nodes.Count -ne 5 -or $tree.relationships.Count -ne 4 -or $tree.sourceEventsUsed -ne 4 -or
+        $tree.quality -ne 'derived' -or $tree.hasCycle -or $tree.evidenceLimitReached -or
+        $tree.nodes[0].processGuid -ne 'cccccccc-2222-4333-8444-555555555555') {
+        throw 'Tree must preserve host-scoped reported parent/child relationships'
+    }
+    if (($tree | ConvertTo-Json -Depth 15 -Compress) -match '"rawXml"') {
+        throw 'Tree must not expose raw XML'
+    }
+    foreach ($edge in $tree.relationships) {
+        if ($edge.evidence.parent.processGuid -ne $edge.parentProcessGuid -or
+            $edge.evidence.processGuid -ne $edge.childProcessGuid -or $edge.basis -ne 'sourceReported') {
+            throw 'Tree relationship must retain its source-reported evidence'
+        }
+        $edgeSummary = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $edge.evidence.eventId) -Headers $headers -TimeoutSec 4
+        if ($edgeSummary.eventId -ne $edge.evidence.eventId) { throw 'Tree evidence reference missing' }
+    }
+    $shallowTree = Invoke-RestMethod ($baseUrl + $treeQuery + '&depth=0') -Headers $processHeaders -TimeoutSec 4
+    $tinyTree = Invoke-RestMethod ($baseUrl + $treeQuery + '&limit=1') -Headers $processHeaders -TimeoutSec 4
+    $emptyTree = Invoke-RestMethod ($baseUrl + $treePath + '?computer=unknown-tree-host') -Headers $processHeaders -TimeoutSec 4
+    if (-not $shallowTree.depthLimitReached -or $shallowTree.nodes.Count -ne 2 -or
+        -not $tinyTree.nodeLimitReached -or $tinyTree.nodes.Count -ne 1 -or
+        $emptyTree.nodes[0].evidenceState -ne 'referenceOnly' -or $emptyTree.sourceEventsUsed -ne 0) {
+        throw 'Tree boundaries must distinguish references, absent evidence and expansion limits'
     }
 
     $activityPath = '/api/v1/processes/aaaaaaaa-2222-4333-8444-555555555555/activity'
@@ -387,7 +432,7 @@ try {
         $systemAfterOptional.lastRecordId -lt $firstRecordId) {
         throw 'Optional channel failure disrupted the System collector'
     }
-    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, network and DNS feeds, host-scoped activity and combined permissions, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
+    Write-Host ('PASS: independently resumed System/Application, optional Sysmon='+ $optional[0].status + ', disk free status, process events and GUID timeline, network and DNS feeds, host-scoped activity and combined permissions, process tree provenance and bounds, client scopes 200/401/403/404, default retention OFF; SystemGaps=' + $resumed.recordedGaps + ', ApplicationGaps=' + $appResumed.recordedGaps)
 }
 finally {
     Stop-TestApi

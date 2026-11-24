@@ -16,7 +16,7 @@ API รับ `X-SysWitness-Token` ผ่าน HTTP บน `127.0.0.1` เท�
 | `coverage.read` | `GET /api/v1/monitoring/coverage`, `GET /api/v1/monitoring/gaps` |
 | `storage.read` | `GET /api/v1/storage/status`, `GET /api/v1/storage/retention` |
 | `network.read` | `GET /api/v1/network/connections`, `GET /api/v1/network/dns` |
-| `processes.read` | `GET /api/v1/processes/events`, `GET /api/v1/processes/{processGuid}/timeline` |
+| `processes.read` | `GET /api/v1/processes/events`, `GET /api/v1/processes/{processGuid}/timeline`, `GET /api/v1/processes/{processGuid}/tree` |
 
 **Timeline รวม Process/DNS/Network:** `GET /api/v1/processes/{processGuid}/activity?computer=<recorded-computer>` ต้องมี **ทั้ง** `processes.read` และ `network.read` ใน Client เดียวกัน ขาดอย่างใดอย่างหนึ่งตอบ 403; Token เดิมไม่ได้สิทธิ์เพิ่ม ไม่มี Scope ใหม่ ดู [คู่มือ Activity](PROCESS_ACTIVITY_TH.md).
 

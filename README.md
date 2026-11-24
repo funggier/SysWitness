@@ -4,7 +4,7 @@
 
 SysWitness เป็นโปรเจกต์สำรวจและบันทึกเหตุการณ์ของคอมพิวเตอร์อย่างละเอียด ทั้งระบบ เครือข่าย โปรเซส บัญชีผู้ใช้ ไฟล์ Registry และความปลอดภัย โดยมี API กลางให้โปรแกรมอื่นรวมถึง AI Local และ MCP Client **อ่าน ค้นหา และวิเคราะห์ข้อมูลได้เท่านั้น**
 
-> **Status:** Observation prototype with process/network monitoring and an initial host-scoped activity timeline. Collects Windows **System** and **Application** Event Log channels independently by default (initial 256-event backfill per channel), then uses per-channel native EventBookmarks committed atomically with SQLite evidence. A read-only localhost API supports bounded searches, storage health, and per-client scoped read keys. Local opt-in retention keeps deletion summaries; default retention is **OFF**. **Security** and **Sysmon** are explicit opt-ins and may be inaccessible. This is not lossless auditing; other deep telemetry collectors, detailed access audit and MCP adapter are planned.
+> **Status:** Observation prototype with process/network monitoring and initial host-scoped activity timelines and process trees. Collects Windows **System** and **Application** Event Log channels independently by default (initial 256-event backfill per channel), then uses per-channel native EventBookmarks committed atomically with SQLite evidence. A read-only localhost API supports bounded searches, storage health, and per-client scoped read keys. Local opt-in retention keeps deletion summaries; default retention is **OFF**. **Security** and **Sysmon** are explicit opt-ins and may be inaccessible. This is not lossless auditing; other deep telemetry collectors, detailed access audit and MCP adapter are planned.
 
 ## Non-negotiable boundaries
 - **Observation only:** no firewall blocking, process termination, file quarantine, registry protection, remote shell, or system enforcement.
@@ -91,6 +91,8 @@ Invoke-RestMethod 'http://127.0.0.1:8769/api/v1/events?limit=20&channel=System&s
 **Network and DNS monitoring** reads TCP/UDP and DNS observations from Sysmon and filtering decisions from Windows Security. Query `/api/v1/network/connections` and `/api/v1/network/dns` with a key that has `network.read`. The optional `processGuid` filter uses the subject GUID recorded by Sysmon. See [Network API](docs/API_CONTRACT.md#network-and-dns-monitoring).
 
 **Process activity timeline** combines retained Sysmon lifecycle, DNS and connection observations through `GET /api/v1/processes/{processGuid}/activity?computer=<recorded-computer>`. It requires both `processes.read` and `network.read`, matches exact subject GUID and computer, and labels the grouping as derived. See [Activity guide (Thai)](docs/PROCESS_ACTIVITY_TH.md) for provenance, pagination and limits.
+
+**Process tree** reads retained Sysmon parent/child relationships through `GET /api/v1/processes/{processGuid}/tree?computer=<recorded-computer>&depth=3&limit=100` with `processes.read`. It returns bounded descendant nodes, parent references, source evidence, unresolved relationships and explicit limit/cycle/conflict flags. See [Tree guide (Thai)](docs/PROCESS_TREE_TH.md).
 
 **Client authorization:** The legacy `SYSWITNESS_API_TOKEN` retains event summary, coverage and storage access. A local `SYSWITNESS_CLIENT_KEYS_FILE` stores SHA-256 hashes, IDs and explicit read scopes for each application. You can use the client file alone without a legacy token. Authorization is still category-level, not per-Channel/per-Event. See [Client keys](docs/API_CLIENTS_TH.md).
 

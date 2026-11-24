@@ -1,6 +1,6 @@
 # SysWitness — Development Status (2026-11-24)
 
-## Current build (observation prototype with initial activity correlation)
+## Current build (observation prototype with activity correlation and process tree)
 
 - **Repository:** funggier/SysWitness, public; copyright (c) 2026 Kittiwat Kitikun — All Rights Reserved.
 - **Local workspace:** `T:\Space\Projects\ProjectsProgram\SysWitness`.
@@ -12,6 +12,7 @@
 - **Process monitoring:** Sysmon 1/5 and Windows Security 4688/4689 are decoded from retained evidence. The authenticated process feed exposes source provenance, lifecycle and parent fields, and the timeline groups Sysmon records by subject GUID. Requires explicit `processes.read`.
 - **Network monitoring:** The network API decodes Sysmon TCP/UDP and DNS events plus Windows Security WFP permit/block records. Both feeds require `network.read`. Sysmon events can be filtered by the original process GUID. Windows Security events retain PID-only attribution.
 - **Initial correlation:** `GET /api/v1/processes/{processGuid}/activity?computer=<recorded-computer>` combines retained Sysmon lifecycle, DNS and connection records by exact subject GUID and host. It requires both `processes.read` and `network.read`, retains evidence IDs, and labels the grouping as derived with explicit limits. No PID-only or causal joins. See [Activity guide](PROCESS_ACTIVITY_TH.md).
+- **Process tree:** `GET /api/v1/processes/{processGuid}/tree?computer=<recorded-computer>&depth=3&limit=100` uses `processes.read`. It expands Sysmon descendants and parent references with source creation evidence, unresolved identity, cycle/conflict flags and depth/node/event limits inside one SQLite read snapshot. See [Tree guide](PROCESS_TREE_TH.md).
 - **Local process collection:** Default `auto` receives WMI process events if permitted and falls back to snapshots, reporting the selected source and fallback reason in monitoring coverage. The process API exposes local observations with source and quality fields. The local collector operates under the caller's current Windows account.
 - **Data folder:** `data/` beside the executable unless `SYSWITNESS_DATA_DIRECTORY` is specified; choose a protected writable path. **Retention defaults OFF**; optional `SYSWITNESS_RETENTION_DAYS` enables bounded, audited age-based deletion of local Event copies. A 4096 MiB default **soft** storage budget and a separate 1024 MiB **minimum free-disk reserve** (`SYSWITNESS_MIN_FREE_DISK_MB`) pause new writes if the respective threshold would be exceeded, or if available disk space cannot be inspected, keeping native bookmarks unchanged. See [Storage policy](STORAGE_POLICY_TH.md).
 - **Optional client architecture:** Dashboard, read-only MCP, AI and third-party apps remain future adapters to this same API. Protection stays entirely external.
@@ -25,7 +26,7 @@ On the Windows development machine:
 - `dotnet list SysWitness.sln package --vulnerable --include-transitive`: no listed vulnerable dependency in latest local query. Always re-audit on release.
 - GitHub Windows workflows successfully completed for commits `62c3b0f` and `f9a69c3`. Current commit result must be checked separately.
 
-## Current-session verification (2026-11-24)
+## Activity verification (2026-11-24; preview.2)
 
 - Started from clean local/GitHub `main` at `a89b40d133a3f4a143344f6a09ed445a05e499b2`. The earlier handoff's `e9b8fed` predates three implemented process/network commits; its published preview.1 remains historical evidence.
 - Windows Release build with warnings-as-errors passed. New activity fixture tests passed for identity/host isolation, negative PID/parent/payload matches, ambiguous/malformed input, tied-time pagination, query bounds and preserved evidence references.
@@ -34,9 +35,18 @@ On the Windows development machine:
 - Preview.2 ZIP built and passed same-machine folder relocation, retained token/event/checkpoints and combined activity API checks. Archive inspection found no runtime private data and no missing expected redistribution notices. NuGet vulnerability query listed no vulnerable packages from current sources. SHA-256: `5DAA103E17C0B155E1AA2C3C67642C0AB8F708D9090DE208B119DCAF6062C117`.
 - Source GUID extraction still occurs on query, as in the prior GUID timeline. Result limits do not impose a scan-duration budget. Workload benchmarks and live Sysmon end-to-end validation remain open.
 
+## Process tree verification (2026-11-24; preview.3)
+
+- Resumed from clean matching local/GitHub `main` at `a154dbd38495673cb7b733ee535d88b625b7ecea`; prior preview.2 verification above is preserved.
+- Windows Release build with warnings-as-errors passed with zero warnings/errors. Tree fixture tests passed for source identity, host isolation, descendants, parent references, missing/ambiguous GUIDs, PID-only exclusion, conflicting parents, cycles/self reference and the fixed 1000-event budget.
+- HTTP 200/400/401/403/404 tests passed for tree scope, strict inputs, edge evidence, root/reference state, depth/node boundaries and no raw XML, alongside existing live System/Application and activity regressions.
+- Portable relocation initially failed its Application checkpoint comparison and cleanup. Instrumented retries passed before a fix, so the original failure-time state was not captured. The harness was observed to wait only for HTTP health; it now waits for successful System/Application positions before comparison and for owned child exit before cleanup. The unchanged checkpoint comparison and complete relocation passed after this change. No runtime bookmark logic was changed.
+- Preview.3 archive audit passed (private runtime files absent, expected notices present), and current NuGet sources listed no vulnerable dependencies. ZIP SHA-256: `58B06819231070C90EDC189F00EA6D3B0C31729ACC3ACF7E3B4EFAB4D1698EBA`.
+- Tree source data is synthetic Sysmon evidence; live Sysmon validation and large-history query-duration measurements remain open. No Windows audit/provider settings were changed.
+
 ## Portable Windows x64 packaging
 
-- `scripts/Build-Portable.ps1` produces `artifacts/SysWitness-0.1.0-preview.2-win-x64-portable.zip` using .NET 10 **self-contained**, untrimmed win-x64 publish. No .NET install is required on the target machine.
+- `scripts/Build-Portable.ps1` produces `artifacts/SysWitness-0.1.0-preview.3-win-x64-portable.zip` using .NET 10 **self-contained**, untrimmed win-x64 publish. No .NET install is required on the target machine.
 - Open `Start-SysWitness.cmd` from the extracted folder; first run generates `config/settings.json`, a local client key registry and `config/owner-token.txt` (sensitive; private folder only). SQLite remains at relative `data/events.sqlite` by default. No registry edits, Windows service or driver installation.
 - `tests/Test-PortableRelocation.ps1` performs actual ZIP extraction, first run, API query, process stop, **move/rename folder**, restart, retained owner key, old event lookup, and checkpoint checks. It passed on the development Windows machine using an isolated test folder.
 - Source/build tools and the .NET SDK are needed to *produce* the ZIP, not to *run* it. Self-contained .NET runtime redistribution notices are included in the package.
@@ -53,7 +63,7 @@ On the Windows development machine:
 
 ## Next engineering priorities
 
-1. **Initial correlation completed:** host-scoped Sysmon process/DNS/network activity with explicit derivation and evidence references. Next extend parent/child relationships and cross-source identity only when supported by evidence; verify live Sysmon and Windows Security sources when available.
+1. **Initial correlation completed:** host-scoped Sysmon process/DNS/network activity with explicit derivation and evidence references. Initial bounded Sysmon parent/child tree is also completed. Next measure/index GUID queries and expand cross-source identity or ancestor exploration only when supported by evidence; verify live Sysmon and Windows Security sources when available.
 2. Atomic source checkpoint regression tests with generated multi-batch fixtures and independent read/replay.
 3. **Completed:** multi-channel Windows Event Log framework with independent bookmarks, coverage status and unavailable-source isolation, without changing Windows Audit Policy remotely.
 4. **Partially completed:** opt-in retention with deletion history, read-only storage status, soft-budget write pause and free-disk preflight guard; still needs safe SQLite file compaction, more complete I/O error handling and loss diagnostics.

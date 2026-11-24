@@ -17,13 +17,14 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 | GET | /evidence/{id} | Raw evidence if authorized | evidence.read |
 | GET | /processes/events | Source-backed process start/exit events | processes.read |
 | GET | /processes/{processGuid}/timeline | Sysmon events for a single subject Process GUID | processes.read |
+| GET | /processes/{processGuid}/tree | Bounded Sysmon descendant graph with source-reported parent references | processes.read |
 | GET | /processes/{processGuid}/activity | Host-scoped Sysmon lifecycle, DNS and connection observations | processes.read AND network.read |
 | GET | /network/connections | Sysmon connections and Windows Filtering Platform audit decisions | network.read |
 | GET | /network/dns | Sysmon DNS query events and reported outcomes | network.read |
 | GET | /events/stream | Authenticated SSE with cursor and replay | events.stream |
 | GET | /schemas/events | Supported event schemas and field coverage | schema.read |
 
-**Implemented in the current prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc), GET /events/{id}, GET /processes/events, GET /processes/{processGuid}/timeline, GET /network/connections and GET /network/dns, plus GET /processes/{processGuid}/activity. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy token for event summaries, coverage and storage or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
+**Implemented in the current prototype:** GET /health, GET /monitoring/coverage (aggregate or `?channel=...`), GET /monitoring/gaps (`?channel=...&limit=...`), GET /storage/status, GET /storage/retention (`?limit=1..100`), GET /events (limit, cursor, channel, category, provider, sourceEventId, fromUtc, toUtc), GET /events/{id}, GET /processes/events, GET /processes/{processGuid}/timeline, GET /network/connections and GET /network/dns, plus GET /processes/{processGuid}/activity and GET /processes/{processGuid}/tree. All other endpoints are **planned**, not implemented. Data endpoints accept `X-SysWitness-Token` using either a legacy token for event summaries, coverage and storage or a client-specific key from the local SHA-256 registry. Valid credentials lacking required read scopes receive HTTP 403. Unknown routes and all non-GET methods receive HTTP 404 after authentication. Raw event XML remains in local SQLite and is not exposed by the initial API.
 
 ## Local storage policy (no remote configuration)
 - Retention is disabled by default. A *local* environment variable `SYSWITNESS_RETENTION_DAYS` may enable opt-in deletion of aged local event copies with durable summary records. `SYSWITNESS_STORAGE_SOFT_LIMIT_MB` defaults to 4096 MiB and conservatively pauses ingestion on projected storage pressure without advancing bookmarks.
@@ -58,6 +59,15 @@ Base URL: `http://127.0.0.1:<configured-port>/api/v1` (port assigned by local co
 - These routes require an explicit `processes.read` scope, which includes access to sensitive command lines. Give it only to clients that need process details. The standard `/events` responses retain their existing summary fields and categories.
 
 See [Sysmon events](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon#events), [Security 4688](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4688) and [Security 4689](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4689).
+
+## Process tree
+
+- `GET /processes/{processGuid}/tree?computer=<recorded-computer>&depth=3&limit=100` requires `processes.read`. It accepts only required `computer`, optional `depth` (0..8), and `limit` (1..256 nodes including root and references). No cursor or event-feed filters are accepted. Invalid/duplicate inputs return 400; unknown identity returns 200 with a reference-only requested root.
+- Uses retained Sysmon Event 1 from the exact computer. Descendants expand breadth-first by reported subject/parent GUID. Other parents are reference nodes, not a complete ancestor search. The response is `quality=derived`, with `method=sysmon_reported_parent_guid_and_computer_v1`.
+- `nodes` include GUID, nullable descendant depth, `evidenceState` (creationInView/referenceOnly), creation evidence and conflicting-parent flag. `relationships` include parent/child GUID, `basis=sourceReported` and the original child creation `evidence`. No raw XML. Resolving event summaries separately still requires `events.read`.
+- Missing/ambiguous identities and self references appear in `unresolved`; `hasCycle` reports cycles/self references in the view. Conflicting parent reports remain visible rather than choosing one silently.
+- The fixed source budget is 1000 unique creation records, with one-row lookahead. `sourceEventsUsed`, `sourceEventLimit`, `depthLimitReached`, `nodeLimitReached` and `evidenceLimitReached` describe expansion limits. False flags do not prove source completeness. All expansion queries share one SQLite read snapshot. These limits do not guarantee a SQL scan duration.
+- See [Tree guide](PROCESS_TREE_TH.md) for provenance, partial views and exclusions of PID-only sources.
 
 ## Process activity correlation
 

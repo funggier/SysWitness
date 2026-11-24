@@ -169,4 +169,5 @@ app.MapGet("/api/v1/events/{eventId}", async (string eventId, SqliteEventStore s
 app.MapProcessEventEndpoints();
 app.MapNetworkEventEndpoints();
 app.MapProcessActivityEndpoints();
+app.MapProcessTreeEndpoints();
 await app.RunAsync();

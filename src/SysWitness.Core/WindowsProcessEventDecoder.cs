@@ -55,6 +55,10 @@ public static class WindowsProcessEventDecoder
     public static Guid? ReadSysmonProcessGuid(string xml) =>
         WindowsEventXml.ParseGuid(WindowsEventXml.ReadFields(xml)?.GetValueOrDefault("ProcessGuid"));
 
+    /// <summary>Read the reported parent GUID; it is never a substitute for the subject identity.</summary>
+    public static Guid? ReadSysmonParentProcessGuid(string xml) =>
+        WindowsEventXml.ParseGuid(WindowsEventXml.ReadFields(xml)?.GetValueOrDefault("ParentProcessGuid"));
+
     private static uint? ParsePid(string? value, bool hexadecimal)
     {
         if (hexadecimal)

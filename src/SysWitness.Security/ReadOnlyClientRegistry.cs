@@ -153,7 +153,7 @@ public sealed class ReadOnlyClientRegistry
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return EventsRead;
         if (path == "/api/v1/processes/events" ||
-            Regex.IsMatch(path, @"\A/api/v1/processes/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/timeline\z",
+            Regex.IsMatch(path, @"\A/api/v1/processes/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/(?:timeline|tree)\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             return ProcessesRead;
         if (path is "/api/v1/network/connections" or "/api/v1/network/dns")

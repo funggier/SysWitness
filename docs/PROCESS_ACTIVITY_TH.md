@@ -54,6 +54,6 @@ Contract อยู่ใน `SysWitness.Contracts`, Projection ใน `SysWitnes
 ## งานต่อที่เหลือ
 
 - ยืนยันกับ Sysmon จริงที่มี Process/DNS/Network ครบตามสิทธิ์
-- เพิ่ม Process Tree และความสัมพันธ์ Parent/Child ที่มีหลักฐานรองรับ
+- Process Tree รุ่นแรกทำแล้ว ดู [คู่มือ Tree](PROCESS_TREE_TH.md); ยังต้องยืนยันกับ Source จริงและพัฒนาการสำรวจบรรพบุรุษเพิ่มเติม
 - ออกแบบการเชื่อมกับแหล่งอื่นเมื่อมี Stable Identity ที่ตรวจได้ โดยแยก Candidate/Inferred ออกจาก Exact Match
 - เพิ่ม Query-cost budgets และ Index ที่เหมาะสมจากผลวัดข้อมูลจริง ปัจจุบันยัง Decode GUID จาก XML ตอน Query เช่นเดียวกับ Timeline เดิม

@@ -5,7 +5,7 @@ param([string]$ZipPath = '')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $ZipPath) {
-    $ZipPath = Join-Path $root 'artifacts\SysWitness-0.1.0-preview.2-win-x64-portable.zip'
+    $ZipPath = Join-Path $root 'artifacts\SysWitness-0.1.0-preview.3-win-x64-portable.zip'
 }
 $zip = (Resolve-Path -LiteralPath $ZipPath).Path
 $temporary = Join-Path $root ('artifacts\_relocation-test-' + [guid]::NewGuid().ToString('N'))
@@ -24,7 +24,13 @@ function Stop-PortableProcess {
         $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$launcherId" -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -eq 'SysWitness.Api.exe' })
         foreach ($child in $children) {
-            Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+            $ownedChild = Get-Process -Id $child.ProcessId -ErrorAction SilentlyContinue
+            if ($ownedChild) {
+                try {
+                    Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+                    if (-not $ownedChild.WaitForExit(5000)) { throw 'Portable test child did not exit.' }
+                } finally { $ownedChild.Dispose() }
+            }
         }
         Stop-Process -Id $launcherId -Force -ErrorAction SilentlyContinue
         try { $script:launcher.WaitForExit(3000) | Out-Null } catch {}
@@ -40,12 +46,25 @@ function Start-PortableProcess([string]$app, [int]$runIndex) {
         ('"' + (Join-Path $app 'Start-SysWitness.ps1') + '"')
     ) -WorkingDirectory $env:TEMP -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     $ready = $false
-    for ($i = 0; $i -lt 65; $i++) {
-        Start-Sleep -Milliseconds 200
+    $startupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+    while ([DateTimeOffset]::UtcNow -lt $startupDeadline) {
+        Start-Sleep -Milliseconds 100
         if ($script:launcher.HasExited) { break }
         try {
             $health = Invoke-RestMethod ($baseUrl + '/api/v1/health') -TimeoutSec 2
-            if ($health.status -eq 'ok') { $ready = $true; break }
+            if ($health.status -eq 'ok') {
+                $startupTokenPath = Join-Path $app 'config\owner-token.txt'
+                if (Test-Path -LiteralPath $startupTokenPath) {
+                    $startupHeaders = @{ 'X-SysWitness-Token' = (Get-Content -LiteralPath $startupTokenPath -Raw).Trim() }
+                    $startupCoverage = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $startupHeaders -TimeoutSec 2
+                    $requiredChannels = @($startupCoverage.channels | Where-Object { $_.channel -in @('System','Application') })
+                    $pendingChannels = @($requiredChannels | Where-Object { $_.status -ne 'collecting' -or $null -eq $_.lastRecordId })
+                    if ($requiredChannels.Count -eq 2 -and $pendingChannels.Count -eq 0) {
+                        $ready = $true
+                        break
+                    }
+                }
+            }
         } catch {}
     }
     if (-not $ready) {
@@ -89,6 +108,11 @@ try {
     if ($activityBefore.limit -ne 1 -or $activityBefore.quality -ne 'derived') {
         throw 'Portable owner cannot read the combined activity route.'
     }
+    $treeRoute = '/api/v1/processes/cccccccc-2222-4333-8444-555555555555/tree?computer=portable-fixture-host&depth=1&limit=5'
+    $treeBefore = Invoke-RestMethod ($baseUrl + $treeRoute) -Headers $headers -TimeoutSec 4
+    if ($treeBefore.quality -ne 'derived' -or $treeBefore.nodes.Count -ne 1) {
+        throw 'Portable owner cannot read process tree reference data.'
+    }
     $eventsBefore = Invoke-RestMethod ($baseUrl + '/api/v1/events?limit=3') -Headers $headers -TimeoutSec 4
     $coverageBefore = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
     if ($eventsBefore.returned -lt 1 -or $coverageBefore.status -notin @('collecting','degraded')) {
@@ -107,6 +131,7 @@ try {
     $settings | Add-Member -NotePropertyName processMode -NotePropertyValue 'snapshot'
     $settings | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $movedSettings -Encoding UTF8
     Start-PortableProcess $appB 2
+    $coverageAfter = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
     $tokenAfter = (Get-Content -LiteralPath (Join-Path $appB 'config\owner-token.txt') -Raw).Trim()
     if ($tokenAfter -ne $tokenBefore) { throw 'Portable owner token changed after relocation.' }
     $processesAfter = Invoke-RestMethod ($baseUrl + '/api/v1/processes/events?limit=1') -Headers $headers -TimeoutSec 4
@@ -117,19 +142,24 @@ try {
     if ($activityAfter.limit -ne 1 -or $activityAfter.correlationMethod -ne $activityBefore.correlationMethod) {
         throw 'Relocated portable owner cannot read the combined activity route.'
     }
+    $treeAfter = Invoke-RestMethod ($baseUrl + $treeRoute) -Headers $headers -TimeoutSec 4
+    if ($treeAfter.method -ne $treeBefore.method -or $treeAfter.rootProcessGuid -ne $treeBefore.rootProcessGuid) {
+        throw 'Relocated portable owner cannot read process tree data.'
+    }
     $byId = Invoke-RestMethod ($baseUrl + '/api/v1/events/' + $idBefore) -Headers $headers -TimeoutSec 4
     if ($byId.eventId -ne $idBefore) {
         throw 'An event stored before relocation disappeared from the moved SQLite DB.'
     }
-    $coverageAfter = Invoke-RestMethod ($baseUrl + '/api/v1/monitoring/coverage') -Headers $headers -TimeoutSec 4
+    # Compare after collector readiness; a genuinely regressed committed record still fails below.
+    # Avoid printing private channel positions on a successful run.
     if ($coverageAfter.processCollector.mode -ne 'snapshot') { throw 'Moved portable settings did not select snapshot mode.' }
     foreach ($before in $coverageBefore.channels) {
         $after = @($coverageAfter.channels | Where-Object channel -eq $before.channel)
         if ($after.Count -ne 1 -or $after[0].lastRecordId -lt $before.lastRecordId) {
-            throw ('Collector checkpoint regressed for ' + $before.channel)
+            throw ('Collector checkpoint not ready/regressed: channel=' + $before.channel + '; before=' + $before.lastRecordId + '; after=' + $after[0].lastRecordId + '; status=' + $after[0].status)
         }
     }
-    Write-Output ('PASS: self-contained ZIP, first-run token, SQLite, bookmarked events and combined activity API continue after folder relocation; port=' + $port)
+    Write-Output ('PASS: self-contained ZIP, first-run token, SQLite, bookmarked events and activity and process tree APIs continue after folder relocation; port=' + $port)
 } finally {
     Stop-PortableProcess
     [Environment]::SetEnvironmentVariable('SYSWITNESS_PROCESS_MODE', $originalProcessMode)

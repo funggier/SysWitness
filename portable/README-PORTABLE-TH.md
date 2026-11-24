@@ -18,6 +18,8 @@
 
 Timeline รวม Process/DNS/Network อ่านได้ที่ `/api/v1/processes/{processGuid}/activity?computer=<ชื่อเครื่องตามหลักฐาน>` เมื่อมีทั้ง `processes.read` และ `network.read` ใช้ Subject GUID กับชื่อเครื่องตรงตามต้นทาง และระบุการจัดกลุ่มเป็น Derived ไม่ใช่การยืนยันความสัมพันธ์เชิงสาเหตุ
 
+Process Tree อ่านได้ที่ `/api/v1/processes/{processGuid}/tree?computer=<ชื่อเครื่องตามหลักฐาน>&depth=3&limit=100` โดยใช้ `processes.read` แสดง Parent/Child จาก Sysmon พร้อมหลักฐาน ข้อมูลกำกวม และขีดจำกัดของ Graph
+
 หลังจากปิดโปรแกรม สามารถย้าย **โฟลเดอร์ทั้งหมด** ได้ทันทีโดยไม่มี Path ถาวรใน Config เริ่มต้น เช่น `T:\Apps\SysWitness` -> `D:\Tools\SysWitness`. เปิด `Start-SysWitness.cmd` ในตำแหน่งใหม่และใช้ Token, SQLite, Bookmarks เดิมได้
 
 ## ที่เก็บไฟล์

@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = '',
-    [string]$Version = '0.1.0-preview.2'
+    [string]$Version = '0.1.0-preview.3'
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
